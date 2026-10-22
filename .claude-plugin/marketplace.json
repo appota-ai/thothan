@@ -1,0 +1,17 @@
+{
+  "metadata": {
+    "description": "Thổ Thần: build Playable games with Claude Code, kept in step with the Playable app."
+  },
+  "name": "thothan",
+  "owner": {
+    "name": "Appota",
+    "url": "https://github.com/appota-ai"
+  },
+  "plugins": [
+    {
+      "name": "thothan",
+      "source": "./",
+      "description": "Build, playtest and publish Playable H5 games from a local folder with the same services as the in-app author; every step shows up in the creator's Playable app."
+    }
+  ]
+}

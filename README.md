@@ -1,0 +1,116 @@
+# Thổ Thần for Claude Code and Codex
+
+Build Playable games on your own machine with Claude Code or Codex. The game ends up in the
+Playable app just like one made there:
+
+- it is listed under the author;
+- the production chat shows each step;
+- progress, assets, tests, the phone preview and the revisions are all there;
+- you can keep chatting with the author in the app.
+
+## Install
+
+**Claude Code**
+
+```bash
+claude plugin marketplace add appota-ai/thothan
+claude plugin install thothan@thothan
+```
+
+Restart Claude Code, open an empty folder and ask for a game, or use
+`/thothan:new <idea>`. To keep working on a game, use `/thothan:continue [gameId]`.
+
+**Codex**
+
+```bash
+git clone https://github.com/appota-ai/thothan ~/.thothan
+node ~/.thothan/bin/thothan.mjs game install codex
+```
+
+This copies the `playable-game` skill into `~/.codex/skills` and adds the `thothan` MCP
+server to `~/.codex/config.toml`.
+
+You need Node.js 18 or newer. The games are Vite projects, so `npm` is needed too.
+
+## What you need
+
+- **A Thổ Thần account**: the same account as the Playable app and thothan.appota.ai.
+- **A game author**: create one in the Playable app (Create → Authors). Each game belongs to
+  one, and it's the author you keep chatting with in the app.
+- **A plan with the creation tools**: starting a game needs Image Forge, as it does in the
+  app. Music and sound effects need Sound Sage.
+
+## Sign in
+
+Signing in uses Thổ Thần's OAuth device flow; no password or key goes through the agent.
+
+1. The first time, the agent calls `thothan_login`.
+2. It gives you a link and a code. Approve "Thổ Thần CLI" in your browser.
+3. The agent picks up the sign-in on its own.
+
+You can also run `node bin/thothan.mjs login` in a terminal.
+
+The sign-in is stored encrypted in `~/.lobehub/`. Claude Code, Codex and the CLI on this
+machine share it, so you sign in once. It renews itself; after about 30 days without use,
+you sign in again. `node bin/thothan.mjs logout` signs out.
+
+## Security
+
+- **What the agent can do.** Signed in, the agent acts as you in Thổ Thần, but only through
+  the game tools.
+  - It can create and edit your games and their chats, and generate art and sound on your plan.
+  - It can publish a game. The skill tells it to publish only when you ask, but that is an
+    instruction, not a technical block, so review publishing steps as you would any other.
+  - Your sign-in token stays in the MCP server; no tool hands it to the agent. It is stored
+    encrypted in `~/.lobehub/`, and the skill forbids reading that folder.
+- **Approve only codes you started.** Approve a sign-in code only when you just asked the
+  agent to sign in. A code someone else sends you would give them your account.
+- **Credentials never sync.** `.env*`, `.npmrc`, `.mcp.json` and key files are never pushed
+  from your folder. Game builds leave them out too, since published game files are served
+  to players.
+- **What a shared game can and can't plant.** Collaborators on a shared author can edit the
+  game's code, and that code runs on your machine when you play it locally.
+  - A pull never writes agent or editor config: `CLAUDE.md`, `AGENTS.md`, `.mcp.json`,
+    `.claude/`, `.codex/`, `.vscode/`, `.npmrc`, `.git/`.
+  - The skill has the agent show you changes to `package.json` or `vite.config.ts` before it
+    installs or runs them.
+- **Signing out.** `node bin/thothan.mjs logout` signs out on this machine. To end every
+  session, sign out of Thổ Thần on the web.
+
+Report a vulnerability as described in [SECURITY.md](SECURITY.md).
+
+## How it works
+
+- **The game folder** is a checkout of the game's Code Workspace (Vite + PixiJS). The agent
+  edits it with its own tools, runs the dev server, and playtests it in a real browser.
+- **The `thothan` MCP server** (`bin/thothan.mjs game mcp`) gives the agent:
+  - every Game Genesis, Image Forge, Sound Sage and checklist API that the in-app game
+    author has, with live schemas;
+  - `thothan_*` tools for the folder: sign in, start or open a game, push, pull, post a
+    note, restore scaffold files, list revisions, and revert.
+- **Every call runs on Thổ Thần, against the game's production chat**, and is recorded
+  there as the author's step. Pushes from the folder become workspace revisions, which the
+  app's preview and revisions follow.
+- **The `playable-game` skill** teaches the agent the procedure. It reads the canonical
+  procedure from Game Genesis, then applies what changes when working locally.
+
+`.appota-game.json` in the game folder says which production the folder belongs to. It is
+never pushed into the game.
+
+## Without an agent
+
+`node bin/thothan.mjs game --help`:
+
+| Command                              | What it does                              |
+| ------------------------------------ | ----------------------------------------- |
+| `game new "<title>"`                 | Start a game                              |
+| `game open --game <gameId>`          | Check out a game made in the app          |
+| `game status`                        | Show where the game stands                |
+| `game push` / `game pull`            | Sync the folder with the game's workspace |
+| `game call <service> <api> '<json>'` | Run one service call                      |
+
+---
+
+`bin/thothan.mjs` is the Thổ Thần CLI's plugin entry, bundled unminified so it can be
+read and audited. It is built from the CLI source with `bun run plugin:build`; do not edit
+it by hand.

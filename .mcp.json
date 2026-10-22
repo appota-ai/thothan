@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "thothan": {
+      "command": "node",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/bin/thothan.mjs", "game", "mcp"]
+    }
+  }
+}
