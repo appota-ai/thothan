@@ -1,8 +1,11 @@
 {
-  "author": { "name": "Appota", "url": "https://github.com/appota-ai" },
+  "author": {
+    "name": "Appota",
+    "url": "https://github.com/appota-ai"
+  },
   "description": "Build, playtest and publish Playable H5 games from a local folder with the same services as the in-app author (Game Genesis, Image Forge, Sound Sage). Every step is recorded in the creator's Playable chat, so they can continue in the app.",
   "keywords": ["thothan", "playable", "game", "pixi", "game-genesis"],
   "name": "thothan",
   "repository": "https://github.com/appota-ai/thothan",
-  "version": "0.1.0"
+  "version": "0.1.1"
 }

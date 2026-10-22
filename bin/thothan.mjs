@@ -5321,7 +5321,8 @@ const createGameTrpcClient = (serverUrl) => createTRPCClient({ links: [httpLink(
 /**
 * Hand the Thổ Thần plugin to a coding agent.
 *
-* The plugin is published as the GitHub marketplace `appota-ai/thothan`: the
+* The plugin is published from the GitHub repo `appota-ai/thothan`, as
+* `thothan@appota-ai` (plugin `thothan` in the `appota-ai` marketplace): the
 * playable-game skill, two commands and an MCP server entry that runs this
 * CLI's `game mcp`, bundled into the repo as `bin/thothan.mjs`.
 * - Claude Code installs it from that marketplace.
@@ -5330,7 +5331,9 @@ const createGameTrpcClient = (serverUrl) => createTRPCClient({ links: [httpLink(
 */
 const PLUGIN_NAME = "thothan";
 const MARKETPLACE_REPO = "appota-ai/thothan";
-const MARKETPLACE_NAME = "thothan";
+const MARKETPLACE_NAME = "appota-ai";
+/** The MCP server's name in Claude Code (from the plugin) and in Codex's config.toml. */
+const MCP_SERVER_NAME$1 = "thothan";
 const SKILL_NAME = "playable-game";
 const isPluginRoot = (dir) => {
 	try {
@@ -5357,7 +5360,7 @@ const findPluginRoot = (from = path.dirname(fileURLToPath(import.meta.url))) => 
 const tomlString = (value) => JSON.stringify(value);
 /** The Codex MCP entry for this CLI, run as `node <script> game mcp`. */
 const codexMcpBlock = (script) => `
-[mcp_servers.${MARKETPLACE_NAME}]
+[mcp_servers.${MCP_SERVER_NAME$1}]
 command = "node"
 args = [${tomlString(script)}, "game", "mcp"]
 # Image, sprite and audio generations can take minutes.
@@ -5371,7 +5374,7 @@ tool_timeout_sec = 900
 const withCodexMcpServer = (config, script) => {
 	const block = codexMcpBlock(script).trim().split("\n");
 	const lines = config.split("\n");
-	const start = lines.findIndex((line) => line.trim() === `[mcp_servers.${MARKETPLACE_NAME}]`);
+	const start = lines.findIndex((line) => line.trim() === `[mcp_servers.${MCP_SERVER_NAME$1}]`);
 	if (start === -1) return config.trim() ? `${config.replace(/\s*$/, "")}\n\n${block.join("\n")}\n` : `${block.join("\n")}\n`;
 	const next = lines.findIndex((line, index) => index > start && line.trim().startsWith("["));
 	const rest = next === -1 ? [] : ["", ...lines.slice(next)];
@@ -5440,7 +5443,7 @@ const installGamePlugin = (target, options = {}) => {
 	const nextConfig = withCodexMcpServer(config, script);
 	if (options.dryRun) {
 		lines.push(`copy ${skillSource} → ${skillTarget}`);
-		lines.push(nextConfig === config ? `${configPath} already has [mcp_servers.${MARKETPLACE_NAME}]` : `write to ${configPath}:${codexMcpBlock(script)}`);
+		lines.push(nextConfig === config ? `${configPath} already has [mcp_servers.${MCP_SERVER_NAME$1}]` : `write to ${configPath}:${codexMcpBlock(script)}`);
 		return lines;
 	}
 	copyDir(skillSource, skillTarget);
@@ -5448,8 +5451,8 @@ const installGamePlugin = (target, options = {}) => {
 	if (nextConfig !== config) {
 		fs.mkdirSync(codexHome, { recursive: true });
 		fs.writeFileSync(configPath, nextConfig);
-		lines.push(`✓ MCP server "${MARKETPLACE_NAME}" → ${configPath}`);
-	} else lines.push(`✓ ${configPath} already has the "${MARKETPLACE_NAME}" MCP server`);
+		lines.push(`✓ MCP server "${MCP_SERVER_NAME$1}" → ${configPath}`);
+	} else lines.push(`✓ ${configPath} already has the "${MCP_SERVER_NAME$1}" MCP server`);
 	lines.push("Restart Codex, then ask it to build a Playable game.");
 	return lines;
 };

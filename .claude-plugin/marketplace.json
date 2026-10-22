@@ -1,8 +1,8 @@
 {
   "metadata": {
-    "description": "Thổ Thần: build Playable games with Claude Code, kept in step with the Playable app."
+    "description": "Appota plugins for coding agents. Thổ Thần: build Playable games with Claude Code, kept in step with the Playable app."
   },
-  "name": "thothan",
+  "name": "appota-ai",
   "owner": {
     "name": "Appota",
     "url": "https://github.com/appota-ai"

@@ -14,7 +14,7 @@ Playable app just like one made there:
 
 ```bash
 claude plugin marketplace add appota-ai/thothan
-claude plugin install thothan@thothan
+claude plugin install thothan@appota-ai
 ```
 
 Restart Claude Code, open an empty folder and ask for a game, or use
