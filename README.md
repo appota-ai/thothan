@@ -50,9 +50,9 @@ Signing in uses Thổ Thần's OAuth device flow; no password or key goes throug
 
 You can also run `node bin/thothan.mjs login` in a terminal.
 
-The sign-in is stored encrypted in `~/.lobehub/`. Claude Code, Codex and the CLI on this
-machine share it, so you sign in once. It renews itself; after about 30 days without use,
-you sign in again. `node bin/thothan.mjs logout` signs out.
+The sign-in is stored in `~/.lobehub/`, readable only by your user. Claude Code, Codex and
+the CLI on this machine share it, so you sign in once. It renews itself; after about 30
+days without use, you sign in again. `node bin/thothan.mjs logout` signs out.
 
 ## Security
 
@@ -61,8 +61,13 @@ you sign in again. `node bin/thothan.mjs logout` signs out.
   - It can create and edit your games and their chats, and generate art and sound on your plan.
   - It can publish a game. The skill tells it to publish only when you ask, but that is an
     instruction, not a technical block, so review publishing steps as you would any other.
-  - Your sign-in token stays in the MCP server; no tool hands it to the agent. It is stored
-    encrypted in `~/.lobehub/`, and the skill forbids reading that folder.
+  - Your sign-in token stays in the MCP server; no tool hands it to the agent, and the skill
+    forbids reading `~/.lobehub/`. The file there is encrypted with a key derived from this
+    machine, which stops casual reading but not a program running as you. Treat it like an
+    SSH key: anything you let run as your user can use it.
+  - The token only ever goes to the server that issued it. If `LOBEHUB_SERVER` or
+    `~/.lobehub/settings.json` points somewhere else, the plugin acts signed out, and
+    `thothan_login` names the other server before you approve anything.
 - **Approve only codes you started.** Approve a sign-in code only when you just asked the
   agent to sign in. A code someone else sends you would give them your account.
 - **Credentials never sync.** `.env*`, `.npmrc`, `.mcp.json` and key files are never pushed
@@ -71,7 +76,9 @@ you sign in again. `node bin/thothan.mjs logout` signs out.
 - **What a shared game can and can't plant.** Collaborators on a shared author can edit the
   game's code, and that code runs on your machine when you play it locally.
   - A pull never writes agent or editor config: `CLAUDE.md`, `AGENTS.md`, `.mcp.json`,
-    `.claude/`, `.codex/`, `.vscode/`, `.npmrc`, `.git/`.
+    `.claude/`, `.codex/`, `.agents/`, `.vscode/`, `.npmrc`, `.git/`, in any letter case.
+  - A push only goes to the game's own workspace, as the hub reports it. A folder whose
+    checkout file names another workspace is refused.
   - The skill has the agent show you changes to `package.json` or `vite.config.ts` before it
     installs or runs them.
 - **Signing out.** `node bin/thothan.mjs logout` signs out on this machine. To end every

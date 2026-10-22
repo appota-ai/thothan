@@ -5217,10 +5217,16 @@ var init_credentials = __esmMin((() => {
 //#endregion
 //#region src/auth/refresh.ts
 init_auth();
+init_urls();
 init_settings();
 init_credentials();
 const CLIENT_ID$1 = CLI_CLIENT_ID;
 const isFresh = (credentials, bufferSeconds) => !!credentials.expiresAt && Date.now() / 1e3 < credentials.expiresAt - bufferSeconds;
+/**
+* The server that issued the credentials. Older files do not name it: their
+* login saved its server in the settings file, or it was the official one.
+*/
+const issuerOf = (credentials) => normalizeUrl(credentials.serverUrl) ?? normalizeUrl(loadSettings()?.serverUrl) ?? "https://thothan.appota.ai";
 /**
 * Get a valid access token, refreshing if expired.
 * Returns null if no credentials or refresh fails.
@@ -5228,19 +5234,22 @@ const isFresh = (credentials, bufferSeconds) => !!credentials.expiresAt && Date.
 async function getValidToken(bufferSeconds = 60) {
 	const credentials = loadCredentials();
 	if (!credentials) return null;
+	const serverUrl = resolveServerUrl();
+	if (issuerOf(credentials) !== serverUrl) return null;
 	if (isFresh(credentials, bufferSeconds)) return { credentials };
 	if (!credentials.refreshToken) return null;
 	return withCredentialsLock(async () => {
 		const current = loadCredentials();
-		if (!current) return null;
+		if (!current || issuerOf(current) !== serverUrl) return null;
 		if (isFresh(current, bufferSeconds)) return { credentials: current };
 		if (!current.refreshToken) return null;
-		const refreshed = await refreshAccessToken(resolveServerUrl(), current.refreshToken);
+		const refreshed = await refreshAccessToken(serverUrl, current.refreshToken);
 		if (!refreshed) return null;
 		const updated = {
 			accessToken: refreshed.access_token,
 			expiresAt: refreshed.expires_in ? Math.floor(Date.now() / 1e3) + refreshed.expires_in : void 0,
-			refreshToken: refreshed.refresh_token || current.refreshToken
+			refreshToken: refreshed.refresh_token || current.refreshToken,
+			serverUrl
 		};
 		saveCredentials(updated);
 		return { credentials: updated };
@@ -5501,7 +5510,8 @@ const startDeviceLogin = async (serverUrl, fetchImpl = fetch) => {
 				saveCredentials({
 					accessToken: body.access_token,
 					expiresAt: body.expires_in ? Math.floor(Date.now() / 1e3) + body.expires_in : void 0,
-					refreshToken: body.refresh_token
+					refreshToken: body.refresh_token,
+					serverUrl
 				});
 				const settings = loadSettings();
 				saveSettings(settings?.serverUrl === serverUrl ? {
@@ -5516,6 +5526,7 @@ const startDeviceLogin = async (serverUrl, fetchImpl = fetch) => {
 	return {
 		done: poll(),
 		expiresAt,
+		serverUrl,
 		userCode: device.user_code,
 		verifyUrl: device.verification_uri_complete || device.verification_uri
 	};
@@ -18700,15 +18711,17 @@ const isSecretCheckoutPath = (workspacePath) => {
 * shared workspace must not be able to plant them in the creator's folder.
 */
 const AGENT_FILES = new Set([
+	".clinerules",
 	".cursorrules",
 	".mcp.json",
 	".npmrc",
+	".windsurfrules",
 	".yarnrc",
 	".yarnrc.yml",
-	"AGENTS.md",
-	"CLAUDE.local.md",
-	"CLAUDE.md",
-	"GEMINI.md"
+	"agents.md",
+	"claude.local.md",
+	"claude.md",
+	"gemini.md"
 ]);
 /**
 * `/src/main.ts` → `src/main.ts`, the path relative to the checkout folder.
@@ -18722,17 +18735,27 @@ const AGENT_FILES = new Set([
 */
 const UNSAFE_SEGMENTS = new Set([
 	"..",
+	".agents",
 	".claude",
 	".codex",
 	".cursor",
+	".gemini",
 	".git",
 	".idea",
-	".vscode"
+	".vscode",
+	".windsurf"
 ]);
+/**
+* A segment as the file system resolves it: macOS and Windows match names
+* case-insensitively (`Claude.md` opens `CLAUDE.md`, `.GIT/hooks` is
+* `.git/hooks`), and Windows drops trailing dots and spaces (`.git.`).
+*/
+const fsName = (segment) => segment.toLowerCase().replace(/[. ]+$/, "") || segment;
 const toCheckoutRelativePath = (workspacePath) => {
 	const relative = workspacePath.replace(/^\/+/, "");
-	const segments = relative.split(/[/\\]/);
-	if (!relative || relative.includes("\0") || relative === ".appota-workspace.json" || relative === ".appota-game.json" || AGENT_FILES.has(segments.at(-1) ?? "") || isSecretCheckoutPath(relative) || segments.some((segment) => UNSAFE_SEGMENTS.has(segment) || segment.includes(":"))) throw new Error(`Refusing unsafe workspace path: ${JSON.stringify(workspacePath)}`);
+	const segments = relative.split(/[/\\]/).map(fsName);
+	const name = segments.at(-1) ?? "";
+	if (!relative || relative.includes("\0") || name === ".appota-workspace.json".toLowerCase() || name === ".appota-game.json".toLowerCase() || AGENT_FILES.has(name) || isSecretCheckoutPath(segments.join("/")) || segments.some((segment) => UNSAFE_SEGMENTS.has(segment) || segment.includes(":") || /~\d+(?:\.|$)/.test(segment))) throw new Error(`Refusing unsafe workspace path: ${JSON.stringify(workspacePath)}`);
 	return relative;
 };
 /** `src\\main.ts` or `src/main.ts` → `/src/main.ts`. */
@@ -19401,15 +19424,17 @@ const openGame = async (ctx, input) => {
 };
 /** Send the folder's changes as a new workspace revision and file it on the production. */
 const pushGame = async (ctx, folder, options = {}) => {
+	const workspaceId = readCheckoutMeta(folder.root)?.workspaceId;
+	const current = await ctx.api.session(folder.session.topicId);
+	if (!workspaceId || workspaceId !== current.workspaceId) throw new Error(`This folder is not a checkout of "${current.title}"'s Code Workspace. Run thothan_open_game (or \`thothan game open\`) to check the game out again.`);
 	const push = await pushCheckout(ctx.workspace, folder.root, {
 		force: options.force,
 		server: ctx.server,
 		summary: options.note
 	});
-	const workspaceId = readCheckoutMeta(folder.root)?.workspaceId ?? folder.session.workspaceId;
 	let notRecorded;
 	let session;
-	if (push.changedPaths.length && workspaceId) try {
+	if (push.changedPaths.length) try {
 		session = await ctx.api.sync({
 			changedPaths: push.changedPaths,
 			note: options.note,
@@ -19420,7 +19445,7 @@ const pushGame = async (ctx, folder, options = {}) => {
 	} catch (error) {
 		notRecorded = error instanceof Error ? error.message : String(error);
 	}
-	session ??= await ctx.api.session(folder.session.topicId);
+	session ??= push.changedPaths.length ? await ctx.api.session(folder.session.topicId) : current;
 	remember(ctx, folder.root, session);
 	return {
 		notRecorded,
@@ -19592,7 +19617,8 @@ function registerLoginCommand(program) {
 					saveCredentials({
 						accessToken: body.access_token,
 						expiresAt: body.expires_in ? Math.floor(Date.now() / 1e3) + body.expires_in : void 0,
-						refreshToken: body.refresh_token
+						refreshToken: body.refresh_token,
+						serverUrl
 					});
 					const existingSettings = loadSettings();
 					saveSettings(existingSettings?.serverUrl === serverUrl ? {
@@ -19656,6 +19682,14 @@ async function openBrowser(url) {
 			resolve(false);
 		}
 	});
+	let parsed;
+	try {
+		parsed = new URL(url);
+	} catch {
+		return false;
+	}
+	if (parsed.protocol !== "https:" && parsed.protocol !== "http:") return false;
+	url = parsed.href;
 	if (process.platform === "win32") return runCommand("rundll32", ["url.dll,FileProtocolHandler", url]);
 	return runCommand(process.platform === "darwin" ? "open" : "xdg-open", [url]);
 }
@@ -19673,6 +19707,7 @@ var init_login = __esmMin((() => {
 
 //#endregion
 //#region src/game/mcpServer.ts
+init_urls();
 /**
 * `thothan game mcp` — the Thổ Thần game tools for Claude Code and Codex.
 *
@@ -19920,6 +19955,7 @@ const createGameMcpServer = (options) => {
 			await openBrowser(started.verifyUrl).catch(() => false);
 		}
 		return text([
+			...pendingLogin.serverUrl !== "https://thothan.appota.ai" ? [`This signs in to ${pendingLogin.serverUrl}, not the official Thổ Thần server (${OFFICIAL_SERVER_URL}); LOBEHUB_SERVER or ~/.lobehub/settings.json chose it. Tell the creator, and approve only if they set it themselves.`] : [],
 			"Ask the creator to approve this sign-in in their browser:",
 			pendingLogin.verifyUrl,
 			`Code: ${pendingLogin.userCode}`,
