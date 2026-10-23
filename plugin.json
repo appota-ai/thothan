@@ -1,0 +1,22 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "author": {
+    "name": "Appota",
+    "url": "https://github.com/appota-ai"
+  },
+  "description": "Build, playtest and publish Playable H5 games from a local folder with the same services as the in-app author (Game Genesis, Image Forge, Sound Sage). Every step is recorded in the creator's Playable chat, so they can continue in the app.",
+  "extensions": {
+    "com.openai": {
+      "interface": {
+        "developerName": "Appota",
+        "displayName": "Thổ Thần",
+        "shortDescription": "Build Playable games locally, kept in step with the Playable app"
+      }
+    }
+  },
+  "homepage": "https://github.com/appota-ai/thothan",
+  "keywords": ["thothan", "playable", "game", "pixi", "game-genesis"],
+  "name": "thothan",
+  "repository": "https://github.com/appota-ai/thothan",
+  "version": "0.1.3"
+}

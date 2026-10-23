@@ -5333,10 +5333,10 @@ const createGameTrpcClient = (serverUrl) => createTRPCClient({ links: [httpLink(
 * The plugin is published from the GitHub repo `appota-ai/thothan`, as
 * `thothan@appota-ai` (plugin `thothan` in the `appota-ai` marketplace): the
 * playable-game skill, two commands and an MCP server entry that runs this
-* CLI's `game mcp`, bundled into the repo as `bin/thothan.mjs`.
-* - Claude Code installs it from that marketplace.
-* - Codex gets the skill in its skills folder and the server in config.toml,
-*   pointing at the script that ran the install.
+* CLI's `game mcp`, bundled into the repo as `bin/thothan.mjs`. Claude Code
+* and Codex both install it from that marketplace; earlier Codex installs
+* copied the skill and wrote the server into config.toml by hand, and those
+* copies are removed so they do not shadow the plugin.
 */
 const PLUGIN_NAME = "thothan";
 const MARKETPLACE_REPO = "appota-ai/thothan";
@@ -5344,64 +5344,6 @@ const MARKETPLACE_NAME = "appota-ai";
 /** The MCP server's name in Claude Code (from the plugin) and in Codex's config.toml. */
 const MCP_SERVER_NAME$1 = "thothan";
 const SKILL_NAME = "playable-game";
-const isPluginRoot = (dir) => {
-	try {
-		return JSON.parse(fs.readFileSync(path.join(dir, ".claude-plugin", "plugin.json"), "utf8"))?.name === PLUGIN_NAME;
-	} catch {
-		return false;
-	}
-};
-/**
-* The plugin's files: the repo the bundled `bin/thothan.mjs` sits in, or
-* `plugins/thothan` beside `dist/` in the CLI package and in apps/cli.
-*/
-const findPluginRoot = (from = path.dirname(fileURLToPath(import.meta.url))) => {
-	let dir = from;
-	for (;;) {
-		if (isPluginRoot(dir)) return dir;
-		const packaged = path.join(dir, "plugins", PLUGIN_NAME);
-		if (isPluginRoot(packaged)) return packaged;
-		const parent = path.dirname(dir);
-		if (parent === dir) throw new Error("The Thổ Thần plugin files are missing from this install.");
-		dir = parent;
-	}
-};
-const tomlString = (value) => JSON.stringify(value);
-/** The Codex MCP entry for this CLI, run as `node <script> game mcp`. */
-const codexMcpBlock = (script) => `
-[mcp_servers.${MCP_SERVER_NAME$1}]
-command = "node"
-args = [${tomlString(script)}, "game", "mcp"]
-# Image, sprite and audio generations can take minutes.
-startup_timeout_sec = 30
-tool_timeout_sec = 900
-`;
-/**
-* config.toml with the thothan server set to `script`: added, or its table
-* replaced when it is already there (it may point at an older install).
-*/
-const withCodexMcpServer = (config, script) => {
-	const block = codexMcpBlock(script).trim().split("\n");
-	const lines = config.split("\n");
-	const start = lines.findIndex((line) => line.trim() === `[mcp_servers.${MCP_SERVER_NAME$1}]`);
-	if (start === -1) return config.trim() ? `${config.replace(/\s*$/, "")}\n\n${block.join("\n")}\n` : `${block.join("\n")}\n`;
-	const next = lines.findIndex((line, index) => index > start && line.trim().startsWith("["));
-	const rest = next === -1 ? [] : ["", ...lines.slice(next)];
-	return `${[
-		...lines.slice(0, start),
-		...block,
-		...rest
-	].join("\n").replace(/\n*$/, "")}\n`;
-};
-const copyDir = (from, to) => {
-	fs.mkdirSync(to, { recursive: true });
-	for (const entry of fs.readdirSync(from, { withFileTypes: true })) {
-		const source = path.join(from, entry.name);
-		const target = path.join(to, entry.name);
-		if (entry.isDirectory()) copyDir(source, target);
-		else fs.copyFileSync(source, target);
-	}
-};
 const run = (command, args) => {
 	const result = spawnSync(command, args, { encoding: "utf8" });
 	if (result.error) return {
@@ -5413,56 +5355,89 @@ const run = (command, args) => {
 		output: `${result.stdout ?? ""}${result.stderr ?? ""}`.trim()
 	};
 };
-const installGamePlugin = (target, options = {}) => {
-	const lines = [];
-	if (target === "claude") {
-		const commands = [["claude", [
-			"plugin",
-			"marketplace",
-			"add",
-			MARKETPLACE_REPO
-		]], ["claude", [
-			"plugin",
-			"install",
-			`${PLUGIN_NAME}@${MARKETPLACE_NAME}`
-		]]];
-		for (const [command, args] of commands) {
-			const shown = `${command} ${args.join(" ")}`;
-			if (options.dryRun) {
-				lines.push(shown);
-				continue;
-			}
-			const result = run(command, args);
-			if (!result.ok) {
-				lines.push(`✗ ${shown}`, result.output, "Run the commands above yourself in a terminal where `claude` is installed.");
-				return lines;
-			}
-			lines.push(`✓ ${shown}`);
-		}
-		if (!options.dryRun) lines.push("Restart Claude Code, then ask it to build a Playable game.");
-		return lines;
+const legacyTableHeader = `[mcp_servers.${MCP_SERVER_NAME$1}]`;
+/**
+* config.toml without the thothan server an earlier Codex install wrote by
+* hand (`node …/thothan.mjs game mcp`): a server of the same name in
+* config.toml wins over the plugin's. Another `thothan` server is left alone.
+*/
+const withoutLegacyCodexServer = (config) => {
+	const lines = config.split("\n");
+	const start = lines.findIndex((line) => line.trim() === legacyTableHeader);
+	if (start === -1) return config;
+	const subTable = `[mcp_servers.${MCP_SERVER_NAME$1}.`;
+	const next = lines.findIndex((line, index) => index > start && line.trim().startsWith("[") && !line.trim().startsWith(subTable));
+	const end = next === -1 ? lines.length : next;
+	if (!lines.slice(start, end).join("\n").includes("thothan.mjs")) return config;
+	return `${[...lines.slice(0, start), ...lines.slice(end)].join("\n").replaceAll(/\n{3,}/g, "\n\n").replace(/\s*$/, "")}\n`.replace(/^\n+/, "");
+};
+/** The playable-game skill an earlier Codex install copied, if it is ours. */
+const legacyCodexSkill = (codexHome) => {
+	const dir = path.join(codexHome, "skills", SKILL_NAME);
+	try {
+		return fs.readFileSync(path.join(dir, "SKILL.md"), "utf8").includes("thothan_") ? dir : void 0;
+	} catch {
+		return;
 	}
-	const pluginRoot = findPluginRoot();
-	const script = options.script ?? fs.realpathSync(process.argv[1]);
-	const codexHome = options.codexHome ?? process.env.CODEX_HOME ?? path.join(os.homedir(), ".codex");
-	const skillSource = path.join(pluginRoot, "skills", SKILL_NAME);
-	const skillTarget = path.join(codexHome, "skills", SKILL_NAME);
+};
+const removeLegacyCodexInstall = (codexHome, dryRun) => {
+	const lines = [];
+	const skill = legacyCodexSkill(codexHome);
+	if (skill) {
+		if (!dryRun) fs.rmSync(skill, {
+			force: true,
+			recursive: true
+		});
+		lines.push(`${dryRun ? "remove" : "✓ removed"} the copied skill ${skill}`);
+	}
 	const configPath = path.join(codexHome, "config.toml");
 	const config = fs.existsSync(configPath) ? fs.readFileSync(configPath, "utf8") : "";
-	const nextConfig = withCodexMcpServer(config, script);
-	if (options.dryRun) {
-		lines.push(`copy ${skillSource} → ${skillTarget}`);
-		lines.push(nextConfig === config ? `${configPath} already has [mcp_servers.${MCP_SERVER_NAME$1}]` : `write to ${configPath}:${codexMcpBlock(script)}`);
-		return lines;
+	const next = withoutLegacyCodexServer(config);
+	if (next !== config) {
+		if (!dryRun) fs.writeFileSync(configPath, next);
+		lines.push(`${dryRun ? "remove" : "✓ removed"} ${legacyTableHeader} from ${configPath}`);
 	}
-	copyDir(skillSource, skillTarget);
-	lines.push(`✓ skill → ${skillTarget}`);
-	if (nextConfig !== config) {
-		fs.mkdirSync(codexHome, { recursive: true });
-		fs.writeFileSync(configPath, nextConfig);
-		lines.push(`✓ MCP server "${MCP_SERVER_NAME$1}" → ${configPath}`);
-	} else lines.push(`✓ ${configPath} already has the "${MCP_SERVER_NAME$1}" MCP server`);
-	lines.push("Restart Codex, then ask it to build a Playable game.");
+	return lines;
+};
+const installGamePlugin = (target, options = {}) => {
+	const lines = [];
+	const commands = target === "claude" ? [["claude", [
+		"plugin",
+		"marketplace",
+		"add",
+		MARKETPLACE_REPO
+	]], ["claude", [
+		"plugin",
+		"install",
+		`${PLUGIN_NAME}@${MARKETPLACE_NAME}`
+	]]] : [["codex", [
+		"plugin",
+		"marketplace",
+		"add",
+		MARKETPLACE_REPO
+	]], ["codex", [
+		"plugin",
+		"add",
+		`${PLUGIN_NAME}@${MARKETPLACE_NAME}`
+	]]];
+	for (const [command, args] of commands) {
+		const shown = `${command} ${args.join(" ")}`;
+		if (options.dryRun) {
+			lines.push(shown);
+			continue;
+		}
+		const result = run(command, args);
+		if (!result.ok) {
+			lines.push(`✗ ${shown}`, result.output, `Run the commands above yourself in a terminal where \`${command}\` is installed.`);
+			return lines;
+		}
+		lines.push(`✓ ${shown}`);
+	}
+	if (target === "codex") {
+		const codexHome = options.codexHome ?? process.env.CODEX_HOME ?? path.join(os.homedir(), ".codex");
+		lines.push(...removeLegacyCodexInstall(codexHome, options.dryRun));
+	}
+	if (!options.dryRun) lines.push(`Restart ${target === "claude" ? "Claude Code" : "Codex"}, then ask it to build a Playable game.`);
 	return lines;
 };
 
@@ -19719,6 +19694,7 @@ init_urls();
 * (the procedure, recipes, style lists) need no game and are not recorded.
 */
 const MCP_SERVER_NAME = "thothan";
+const NO_WORKDIR = "This client does not say which folder the project is in. Call thothan_status (or thothan_start_game / thothan_open_game) with workdir: the absolute path of your working folder.";
 const SERVICE_PREFIXES = {
 	"appota-gtd": "gtd",
 	"taka-game-genesis": "game_genesis",
@@ -19734,6 +19710,26 @@ const object = (properties, required = []) => ({
 const NOTE = {
 	description: "Optional. One or two sentences for the creator, shown in their Playable chat as the author’s message.",
 	type: "string"
+};
+const WORKDIR = {
+	description: "Absolute path of your working folder (the project the creator opened). Codex does not tell the server where that is, so always pass it there; Claude Code may leave it out.",
+	type: "string"
+};
+/** Tools that need no folder; every other local tool takes `workdir`. */
+const FOLDERLESS = new Set(["thothan_list_authors", "thothan_login"]);
+const withWorkdir = (tool) => {
+	if (FOLDERLESS.has(tool.name)) return tool;
+	const schema = tool.inputSchema;
+	return {
+		...tool,
+		inputSchema: {
+			...schema,
+			properties: {
+				...schema.properties,
+				workdir: WORKDIR
+			}
+		}
+	};
 };
 const LOCAL_TOOLS = [
 	{
@@ -19850,9 +19846,68 @@ const LOCAL_TOOLS = [
 		}, ["revision"]),
 		name: "thothan_revert"
 	}
-];
+].map(withWorkdir);
 /** `game_genesis_startGameProject` ↔ (`taka-game-genesis`, `startGameProject`). */
 const serviceToolName = (identifier, apiName) => `${SERVICE_PREFIXES[identifier] ?? identifier.replaceAll(/\W/g, "_")}_${apiName}`;
+/**
+* Codex shows the model only so much tool text, in name order, and silently
+* drops the rest: with every service API listed, the folder tools and whole
+* services never reach it. Codex gets the folder tools and these two, which
+* reach every API by the name the skill uses.
+*/
+const GATEWAY_TOOLS = [{
+	description: "Find Game Genesis, Image Forge, Sound Sage and checklist (gtd) APIs. With `tools`, returns each one’s full description and argument schema; otherwise lists the names with a one-line summary, narrowed by `query` or `service`. Run one with thothan_call.",
+	inputSchema: object({
+		query: {
+			description: "Words to match in names and descriptions.",
+			type: "string"
+		},
+		service: {
+			description: "game_genesis, image_forge, sound_sage or gtd.",
+			type: "string"
+		},
+		tools: {
+			description: "Exact names to describe, e.g. [\"game_genesis_startGameProject\"].",
+			items: { type: "string" },
+			type: "array"
+		}
+	}),
+	name: "thothan_find_tools"
+}, {
+	description: "Run one Game Genesis, Image Forge, Sound Sage or checklist (gtd) API by the name the playable-game skill uses, e.g. game_genesis_startGameProject. Read its argument schema with thothan_find_tools first.",
+	inputSchema: object({
+		arguments: {
+			description: "The API’s arguments, as its schema describes.",
+			type: "object"
+		},
+		tool: {
+			description: "API name, e.g. game_genesis_testGameProject.",
+			type: "string"
+		}
+	}, ["tool"]),
+	name: "thothan_call"
+}];
+/** A client that drops tools past a size budget gets the gateway instead of every API. */
+const usesGateway = (clientName) => /codex/i.test(clientName ?? "");
+/** `thothan_find_tools`: a list of names, or the full entries asked for by name. */
+const findServiceTools = (tools, query) => {
+	if (query.tools?.length) return query.tools.map((name) => {
+		const tool = tools.find((each) => each.name === name);
+		return tool ? `## ${tool.name}\n${tool.description}\nArguments: ${JSON.stringify(tool.inputSchema)}` : `## ${name}\nNo such API. List them with thothan_find_tools.`;
+	}).join("\n\n");
+	const words = (query.query ?? "").toLowerCase().split(/\s+/).filter(Boolean);
+	const service = query.service?.toLowerCase().replaceAll("-", "_");
+	const found = tools.filter((tool) => {
+		if (service && !tool.name.startsWith(`${service}_`)) return false;
+		const haystack = `${tool.name} ${tool.description}`.toLowerCase();
+		return words.every((word) => haystack.includes(word));
+	});
+	if (!found.length) return "No API matches. Try fewer words, or a service alone.";
+	return found.map((tool) => {
+		const summary = tool.description.replace(/^\[[^\]]*\]\s*/, "").split(/(?<=\.)\s/)[0];
+		return `${tool.name}: ${summary.slice(0, 160)}`;
+	}).join("\n");
+};
 const buildServiceTools = (catalog) => {
 	const tools = [];
 	const routes = /* @__PURE__ */ new Map();
@@ -19899,7 +19954,7 @@ const createGameMcpServer = (options) => {
 		version: "1.0.0"
 	}, {
 		capabilities: { tools: { listChanged: true } },
-		instructions: "Build Playable games locally and keep them in step with the Playable app. Follow the playable-game skill. Start with thothan_status; read the procedure with game_genesis_fetch_game_creation_procedure before building."
+		instructions: "Build Playable games locally, in step with the Playable app. Follow the playable-game skill; start with thothan_status, passing workdir."
 	});
 	const context = () => options.context(server.getClientVersion()?.name ?? "coding-agent");
 	/**
@@ -19907,6 +19962,13 @@ const createGameMcpServer = (options) => {
 	* there); other clients may offer it as an MCP root; else the server's own.
 	*/
 	let projectDir;
+	/** The game folder this server started or opened. */
+	let activeRoot;
+	const ownFolder = () => {
+		if (!options.pluginRoot) return options.cwd;
+		const inside = path.relative(path.resolve(options.pluginRoot), path.resolve(options.cwd));
+		return inside.startsWith("..") || path.isAbsolute(inside) ? options.cwd : void 0;
+	};
 	const baseDir = async () => {
 		if (projectDir) return projectDir;
 		let found = process.env.CLAUDE_PROJECT_DIR;
@@ -19915,11 +19977,20 @@ const createGameMcpServer = (options) => {
 			const root = roots.find((each) => each.uri.startsWith("file://"));
 			if (root) found = fileURLToPath(root.uri);
 		} catch {}
-		projectDir = found || options.cwd;
+		projectDir = found || ownFolder();
+		if (!projectDir) throw new Error(NO_WORKDIR);
 		return projectDir;
 	};
+	/** The agent names its folder: the project from now on, and the game in it. */
+	const useWorkdir = (workdir) => {
+		if (typeof workdir !== "string" || !workdir.trim()) return;
+		if (!path.isAbsolute(workdir)) throw new Error("workdir must be an absolute path.");
+		const next = path.resolve(workdir);
+		if (next === projectDir) return;
+		projectDir = next;
+		if (activeRoot && path.relative(next, activeRoot).startsWith("..")) activeRoot = void 0;
+	};
 	/** The game folder: the one this server started or opened, else the one in the project. */
-	let activeRoot;
 	const folder = async () => locateGameFolder(activeRoot ?? await baseDir());
 	let services;
 	const serviceTools = () => {
@@ -19930,7 +20001,9 @@ const createGameMcpServer = (options) => {
 		return services;
 	};
 	let pendingLogin;
+	const gateway = () => usesGateway(server.getClientVersion()?.name);
 	server.setRequestHandler(ListToolsRequestSchema, async () => {
+		if (gateway()) return { tools: [...LOCAL_TOOLS, ...GATEWAY_TOOLS] };
 		if (!await isSignedIn()) return { tools: LOCAL_TOOLS };
 		try {
 			const { tools } = await serviceTools();
@@ -19965,7 +20038,13 @@ const createGameMcpServer = (options) => {
 	const runLocal = async (name, args) => {
 		if (!name.startsWith("thothan_")) return void 0;
 		if (name === "thothan_login") return login();
+		useWorkdir(args.workdir);
 		if (!await isSignedIn()) return text("Not signed in to Thổ Thần yet: call thothan_login first.", true);
+		if (name === "thothan_call") return void 0;
+		if (name === "thothan_find_tools") {
+			const { tools } = await serviceTools();
+			return text(findServiceTools(tools, args));
+		}
 		const ctx = await context();
 		switch (name) {
 			case "thothan_list_authors": {
@@ -20070,11 +20149,18 @@ const createGameMcpServer = (options) => {
 		}
 	};
 	server.setRequestHandler(CallToolRequestSchema, async (request) => {
-		const { name } = request.params;
-		const args = request.params.arguments ?? {};
+		let { name } = request.params;
+		let args = request.params.arguments ?? {};
 		try {
 			const local = await runLocal(name, args);
 			if (local) return local;
+			if (name === "thothan_call") {
+				const inner = args.arguments ?? {};
+				if (typeof inner !== "object" || Array.isArray(inner)) return text("arguments must be an object.", true);
+				name = String(args.tool ?? "");
+				args = inner;
+				if (name.startsWith("thothan_")) return text(`Call ${name} directly.`, true);
+			}
 			if (!await isSignedIn()) return text("Not signed in to Thổ Thần yet: call thothan_login first.", true);
 			const { routes } = await serviceTools();
 			const route = routes.get(name);
@@ -20323,7 +20409,8 @@ function registerGameCommand(program) {
 			await runGameMcpServer({
 				context: gameContext,
 				cwd: process.cwd(),
-				login: () => startDeviceLogin(resolveServerUrl())
+				login: () => startDeviceLogin(resolveServerUrl()),
+				pluginRoot: process.env.PLUGIN_ROOT
 			});
 		} catch (error) {
 			process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);

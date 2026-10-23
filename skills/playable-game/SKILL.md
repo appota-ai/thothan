@@ -17,11 +17,17 @@ Playable app. The production is the same one the app runs:
   there.
 - Tool names are `game_genesis_<api>`, `image_forge_<api>`, `sound_sage_<api>`, `gtd_<api>`
   and the local `thothan_*` tools.
+- **In Codex** the service APIs are not separate tools; Codex would drop most of them.
+  Run each one with `thothan_call` (`tool` = the name used here, e.g.
+  `game_genesis_startGameProject`, plus its `arguments`). Read an API's arguments with
+  `thothan_find_tools` (`tools: ["game_genesis_startGameProject"]`) before its first call,
+  or list a service's APIs with `thothan_find_tools` (`service: "image_forge"`).
 
 The plugin works with the creator's Thổ Thần account: the same account as the Playable
 app, signed in through OAuth.
 
-- **Only `thothan_*` tools are listed:** you are not signed in yet. Call `thothan_login`.
+- **Only `thothan_*` tools are listed** (and you are not in Codex): you are not signed in
+  yet. Call `thothan_login`. In Codex, a "Not signed in" answer says the same.
   Give the creator the link and code it returns, and wait for them to approve it in the
   browser. Never ask for a password or a token. The service tools appear on their own
   afterwards; restart the session if they don't.
@@ -32,7 +38,9 @@ app, signed in through OAuth.
 
 ## Start of every session
 
-1. `thothan_status`.
+1. `thothan_status`, with `workdir` set to the absolute path of your working folder. Pass
+   `workdir` to every `thothan_*` tool: Codex does not tell the server which folder you
+   are in.
    - It names the game: use it.
    - "Several games": call `thothan_open_game` with the `dir` of the one to work on.
    - "No Playable game": for a new game call `thothan_start_game` (title + the creator's

@@ -23,12 +23,21 @@ Restart Claude Code, open an empty folder and ask for a game, or use
 **Codex**
 
 ```bash
-git clone https://github.com/appota-ai/thothan ~/.thothan
-node ~/.thothan/bin/thothan.mjs game install codex
+codex plugin marketplace add appota-ai/thothan
+codex plugin add thothan@appota-ai
 ```
 
-This copies the `playable-game` skill into `~/.codex/skills` and adds the `thothan` MCP
-server to `~/.codex/config.toml`.
+Restart Codex, open an empty folder and ask for a game.
+
+- Codex lists the folder tools (`thothan_*`) and reaches the service APIs through
+  `thothan_find_tools` and `thothan_call`. With every API listed separately, Codex would
+  hide most of them.
+- Codex doesn't tell the plugin which folder you're in, so the agent passes it as `workdir`.
+  The skill tells it to.
+- If you installed with `git clone` and `game install codex` before, run
+  `node ~/.thothan/bin/thothan.mjs game install codex` once more. It switches you to the
+  plugin and removes the old copied skill and `config.toml` entry, which would otherwise
+  win over the plugin.
 
 You need Node.js 18 or newer. The games are Vite projects, so `npm` is needed too.
 
