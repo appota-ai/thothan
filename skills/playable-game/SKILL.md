@@ -166,6 +166,14 @@ Read `game_genesis_fetch_character_production_skill` first. What changes locally
   `humanoid_polearm_sideview_v1`; rifle fighters use the humanoid rifle presets. Never write a
   custom rig for these: a custom rig that attaches the weapon by its end is what makes swords
   float beside the hand.
+- **Produce in one job.** `game_genesis_character_produce` runs artwork, extraction, fitting and
+  previews; then `game_genesis_character_job_status` with `wait_seconds: 50` until it settles.
+  The melee presets draw the whole figure once and cut each part from it: look at
+  `figure.overlay_url` with `thothan_view_images` and correct a wrong box with `figure_regions`.
+- **Fix measurements yourself.** When a part is rejected or a joint looks wrong, look at
+  `game_genesis_character_landmarks` for that part and send corrected `landmarks` with
+  `remeasure_part`, instead of paying for a redraw. `provider_error` means a service is down:
+  retry later, never redraw.
 - **Look at the result yourself.** After `game_genesis_character_render_preview`, call
   `thothan_view_images` with the `closeups.png` link and the motion sheets you need
   (`motion_idle_aim_0.png`, `motion_attack_aim_0.png`, …). Check the hand closes on the
