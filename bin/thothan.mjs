@@ -19716,7 +19716,12 @@ const WORKDIR = {
 	type: "string"
 };
 /** Tools that need no folder; every other local tool takes `workdir`. */
-const FOLDERLESS = new Set(["thothan_list_authors", "thothan_login"]);
+const MAX_VIEWED_IMAGES = 6;
+const FOLDERLESS = new Set([
+	"thothan_list_authors",
+	"thothan_login",
+	"thothan_view_images"
+]);
 const withWorkdir = (tool) => {
 	if (FOLDERLESS.has(tool.name)) return tool;
 	const schema = tool.inputSchema;
@@ -19845,6 +19850,17 @@ const LOCAL_TOOLS = [
 			}
 		}, ["revision"]),
 		name: "thothan_revert"
+	},
+	{
+		description: "Look at Thổ Thần images yourself: Spine closeups.png and motion sheets, generated art, screenshots. Returns them as images. Pass file links from tool results (https://…/f/file_…) or file ids (file_…), up to 6 per call.",
+		inputSchema: object({ images: {
+			description: "File links or ids, e.g. the closeups.png and motion sheet links from character_render_preview.",
+			items: { type: "string" },
+			maxItems: MAX_VIEWED_IMAGES,
+			minItems: 1,
+			type: "array"
+		} }, ["images"]),
+		name: "thothan_view_images"
 	}
 ].map(withWorkdir);
 /** `game_genesis_startGameProject` ↔ (`taka-game-genesis`, `startGameProject`). */
@@ -19940,6 +19956,60 @@ const sessionLines = (session) => [
 	session.progress?.codeWorkspaceRevision !== void 0 && `latest revision: ${session.progress.codeWorkspaceRevision}`,
 	`open in Playable: ${session.workUrl ?? session.appUrl}`
 ].filter(Boolean).join("\n");
+const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+/**
+* Thổ Thần files the agent asked to see, as MCP image content. Only the
+* server's own `/f/` file links are fetched: a URL from a tool result must not
+* make this process download from anywhere else.
+*/
+const viewImages = async (server, references, fetchImpl = fetch) => {
+	if (!Array.isArray(references) || !references.length) throw new Error("Pass images: file links or ids.");
+	const origin = new URL(server).origin;
+	const content = [];
+	for (const reference of references.slice(0, MAX_VIEWED_IMAGES)) {
+		const value = String(reference).trim();
+		let url;
+		try {
+			url = /^file_[\w-]{1,64}$/.test(value) ? new URL(`/f/${value}`, origin) : new URL(value);
+		} catch {
+			content.push({
+				text: `${value}: not a file link or id.`,
+				type: "text"
+			});
+			continue;
+		}
+		if (url.origin !== origin || !url.pathname.startsWith("/f/")) {
+			content.push({
+				text: `${value}: only ${origin}/f/ file links can be viewed.`,
+				type: "text"
+			});
+			continue;
+		}
+		url.search = "inline=1";
+		try {
+			const response = await fetchImpl(url, { signal: AbortSignal.timeout(3e4) });
+			const mimeType = (response.headers.get("content-type") ?? "").split(";")[0].trim();
+			if (!response.ok) throw new Error(`HTTP ${response.status}`);
+			if (!/^image\/(?:png|jpeg|gif|webp)$/.test(mimeType)) throw new Error(`not an image (${mimeType})`);
+			const bytes = Buffer.from(await response.arrayBuffer());
+			if (bytes.length > MAX_IMAGE_BYTES) throw new Error("larger than 5 MB");
+			content.push({
+				text: url.pathname.split("/").pop() ?? value,
+				type: "text"
+			}, {
+				data: bytes.toString("base64"),
+				mimeType,
+				type: "image"
+			});
+		} catch (error) {
+			content.push({
+				text: `${value}: ${error instanceof Error ? error.message : String(error)}`,
+				type: "text"
+			});
+		}
+	}
+	return { content };
+};
 const text = (value, isError = false) => ({
 	content: [{
 		text: value,
@@ -20047,6 +20117,7 @@ const createGameMcpServer = (options) => {
 		}
 		const ctx = await context();
 		switch (name) {
+			case "thothan_view_images": return viewImages(ctx.server, args.images);
 			case "thothan_list_authors": {
 				const authors = await ctx.api.authors();
 				return text(authors.length ? authors.map((author) => `${author.id}  ${author.name} (${author.access})`).join("\n") : "No game authors yet. The creator makes one in the Playable app (Create → Authors).");

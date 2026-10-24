@@ -103,7 +103,10 @@ Report a vulnerability as described in [SECURITY.md](SECURITY.md).
   - every Game Genesis, Image Forge, Sound Sage and checklist API that the in-app game
     author has, with live schemas;
   - `thothan_*` tools for the folder: sign in, start or open a game, push, pull, post a
-    note, restore scaffold files, list revisions, and revert.
+    note, restore scaffold files, list revisions, and revert;
+  - `thothan_view_images`, which shows the agent Thổ Thần images (Spine close-ups, motion
+    sheets, generated art) so it can review its own characters. It only fetches the
+    server's own `/f/` file links.
 - **Every call runs on Thổ Thần, against the game's production chat**, and is recorded
   there as the author's step. Pushes from the folder become workspace revisions, which the
   app's preview and revisions follow.

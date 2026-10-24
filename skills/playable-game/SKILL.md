@@ -157,6 +157,25 @@ for one.
    - The QA status.
    - The Playable link from `thothan_status`.
 
+## Spine characters
+
+Read `game_genesis_fetch_character_production_skill` first. What changes locally:
+
+- **Pick the preset by weapon.** Sword, sabre, axe or mace fighters seen from the side use
+  `humanoid_melee_sideview_v1`; glaive, spear or staff fighters use
+  `humanoid_polearm_sideview_v1`; rifle fighters use the humanoid rifle presets. Never write a
+  custom rig for these: a custom rig that attaches the weapon by its end is what makes swords
+  float beside the hand.
+- **Look at the result yourself.** After `game_genesis_character_render_preview`, call
+  `thothan_view_images` with the `closeups.png` link and the motion sheets you need
+  (`motion_idle_aim_0.png`, `motion_attack_aim_0.png`, …). Check the hand closes on the
+  handle, nothing floats or detaches, head, arms and legs meet the torso without gaps, the
+  two legs read as near and far, and each clip moves as named.
+- **Then validate with your verdict.** Pass `review` to `game_genesis_character_validate`:
+  `passed`, the `failures` you saw (code, `part_id`, pose, `suggested_action`, a short note)
+  and `viewed` (the preview names you opened). Fix one failure at a time with
+  `game_genesis_character_repair`, re-render, look again.
+
 ## Playtest locally
 
 This is the advantage you have over the in-app author: use it on every meaningful change.
