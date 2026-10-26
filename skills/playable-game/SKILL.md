@@ -31,10 +31,22 @@ app, signed in through OAuth.
   Give the creator the link and code it returns, and wait for them to approve it in the
   browser. Never ask for a password or a token. The service tools appear on their own
   afterwards; restart the session if they don't.
+
 - **Signed in, but the service tools still don't show:** the hub is unreachable.
+
 - **"Requires an active subscription":** the creator's plan lacks that service. Say so and
   stop; don't look for a workaround.
+
 - **No author to pick:** the creator makes one in the Playable app (Create → Authors).
+
+- **Cloud sessions** (Claude Code on the web, Codex cloud) usually sign in from the environment:
+  `THOTHAN_AUTH=proxy` with a network secret, or `LOBEHUB_CLI_API_KEY`. If they don't, `thothan_login`
+  still works (the creator approves the link on any device), but the sign-in lasts only as long as
+  the session's machine. Point the creator to the README's "Cloud sessions" setup instead of asking
+  for a key: never ask for, print or store one.
+
+- **No `thothan_*` tools at all** (some cloud agents start no MCP servers): use the CLI the
+  repository vendors, `node .thothan/thothan.mjs game …`, as `AGENTS.md` describes.
 
 ## Start of every session
 
