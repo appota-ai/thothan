@@ -39,11 +39,11 @@ app, signed in through OAuth.
 
 - **No author to pick:** the creator makes one in the Playable app (Create → Authors).
 
-- **Cloud sessions** (Claude Code on the web, Codex cloud) usually sign in from the environment:
-  `THOTHAN_AUTH=proxy` with a network secret, or `LOBEHUB_CLI_API_KEY`. If they don't, `thothan_login`
-  still works (the creator approves the link on any device), but the sign-in lasts only as long as
-  the session's machine. Point the creator to the README's "Cloud sessions" setup instead of asking
-  for a key: never ask for, print or store one.
+- **Cloud sessions** (Claude Code on the web, Codex cloud) sign in like a local session: call
+  `thothan_login` and give the creator the link and code to approve on any device. If Thổ Thần
+  cannot be reached at all, the environment does not allow `thothan.appota.ai` yet: tell the
+  creator to add it to the environment's network access (README, "Cloud sessions"). Never ask
+  for, print or store a key.
 
 - **No `thothan_*` tools at all** (some cloud agents start no MCP servers): use the CLI the
   repository vendors, `node .thothan/thothan.mjs game …`, as `AGENTS.md` describes.

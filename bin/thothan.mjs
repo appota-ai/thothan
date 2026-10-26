@@ -5330,6 +5330,15 @@ const environmentCredential = () => {
 /** A rejected request, explained for the sign-in this process actually uses. */
 const explainFailure = (error) => {
 	const message = error instanceof Error ? error.message : String(error);
+	if (/fetch failed|ECONNREFUSED|ENOTFOUND|ETIMEDOUT|EAI_AGAIN|tunneling socket|Proxy response/i.test(message)) {
+		const cloud = [
+			"HTTPS_PROXY",
+			"https_proxy",
+			"HTTP_PROXY",
+			"http_proxy"
+		].some((name) => process.env[name]);
+		return `Could not reach ${resolveServerUrl()} (${message}).${cloud ? " In a cloud session, add thothan.appota.ai to the environment's network access (Custom, keeping the default list)." : ""}`;
+	}
 	if (message !== "UNAUTHORIZED") return message;
 	if (usesProxyAuth()) return "Thổ Thần rejected the request: THOTHAN_AUTH=proxy is set, but the environment attached no valid key. Check the cloud environment's network secret for thothan.appota.ai (header X-API-Key, no prefix).";
 	if (process.env["LOBEHUB_CLI_API_KEY"]) return "Thổ Thần rejected LOBEHUB_CLI_API_KEY: create a new key in Settings → API Keys.";
@@ -5554,8 +5563,8 @@ playable-game skill (\`.agents/skills/playable-game/SKILL.md\`).
   - \`node ${REPO_BIN} game reference taka-game-genesis fetch_game_creation_procedure\` (reads that need no game)
   - \`node ${REPO_BIN} game call taka-game-genesis <api> '<json>'\`
   - \`node ${REPO_BIN} game push -m "<note>"\`, \`game pull\`, \`game note "<message>"\`
-- Sign-in comes from the environment: \`THOTHAN_AUTH=proxy\` with a network secret, or \`LOBEHUB_CLI_API_KEY\`.
-  Never print, store or commit a key.
+- Not signed in? Call \`thothan_login\` (or run \`node ${REPO_BIN} login\`) and give the creator the link and
+  code; they approve it on any device. Never ask for, print, store or commit a key.
 ${AGENTS_END}`;
 const withAgentsSection = (existing) => {
 	const start = existing.indexOf(AGENTS_START);
@@ -5563,12 +5572,46 @@ const withAgentsSection = (existing) => {
 	if (start !== -1 && end > start) return `${existing.slice(0, start)}${AGENTS_SECTION}${existing.slice(end + 20)}`;
 	return existing.trim() ? `${existing.replace(/\s*$/, "")}\n\n${AGENTS_SECTION}\n` : `${AGENTS_SECTION}\n`;
 };
-const repositoryRoot = (dir) => {
+const gitTopLevel = (dir) => {
 	const result = spawnSync("git", ["rev-parse", "--show-toplevel"], {
 		cwd: dir,
 		encoding: "utf8"
 	});
-	return result.status === 0 && result.stdout.trim() ? result.stdout.trim() : path.resolve(dir);
+	return result.status === 0 && result.stdout.trim() ? fs.realpathSync(result.stdout.trim()) : void 0;
+};
+const repositoryRoot = (dir) => gitTopLevel(dir) ?? path.resolve(dir);
+const sameFile = (a, b) => {
+	try {
+		return fs.readFileSync(a).equals(fs.readFileSync(b));
+	} catch {
+		return false;
+	}
+};
+/**
+* Make a game folder usable from a cloud session (Claude Code on the web,
+* Codex cloud) without a separate step: vendor the plugin into it when a game
+* is started or opened. Skipped when this process is itself a vendored copy,
+* and never written into an enclosing repository's root. Returns a note for
+* the creator, or undefined when nothing changed.
+*/
+const makeCloudReady = (gameDir, options = {}) => {
+	let pluginRoot;
+	try {
+		pluginRoot = options.pluginRoot ?? findPluginRoot();
+	} catch {
+		return;
+	}
+	const bundle = path.join(pluginRoot, "bin", "thothan.mjs");
+	if (!fs.existsSync(bundle)) return void 0;
+	const folder = fs.realpathSync(gameDir);
+	const top = gitTopLevel(folder);
+	if (top && top !== folder) return `This game sits inside the repository ${top}; to use it from cloud sessions, run \`thothan game install repo\` there.`;
+	if (sameFile(bundle, path.join(folder, ".thothan/thothan.mjs")) && fs.existsSync(path.join(folder, ".mcp.json"))) return void 0;
+	installIntoRepository({
+		dir: folder,
+		pluginRoot
+	});
+	return "Cloud-ready: the plugin is now in this folder (.thothan/, .mcp.json, skills, AGENTS.md). Commit them with the game to use it from Claude Code or Codex cloud sessions.";
 };
 const copyTree = (from, to) => {
 	fs.rmSync(to, {
@@ -5615,7 +5658,7 @@ const installIntoRepository = (options = {}) => {
 		}
 		lines.push(`  ${write() ? "✓" : "="} ${label}`);
 	}
-	if (!options.dryRun) lines.push("Commit these files. In the cloud environment, sign in without a browser:", "  Claude Code: add a network secret for thothan.appota.ai (header X-API-Key, no prefix, your Thổ Thần API key) and the variable THOTHAN_AUTH=proxy.", "  Codex: set LOBEHUB_CLI_API_KEY in the environment variables and allow agent internet access to thothan.appota.ai.", "Create the API key at https://thothan.appota.ai/settings/apikey. Run this again to update the vendored plugin.");
+	if (!options.dryRun) lines.push("Commit these files. In the cloud environment, allow network access to thothan.appota.ai once;", "the first time, the agent shows a sign-in link you approve, as on your machine. Run this again to update.");
 	return lines;
 };
 
@@ -19494,6 +19537,14 @@ const checkoutTarget = (cwd, title, dir) => {
 * Vite + PixiJS scaffold, and a checkout of it. The Game Genesis project comes
 * next, from the agent's `startGameProject` with the brief it decides.
 */
+/** Vendoring for cloud sessions is a convenience: it must never fail a start or an open. */
+const cloudReady = (dir) => {
+	try {
+		return makeCloudReady(dir);
+	} catch (error) {
+		return `Could not make the folder cloud-ready (${error instanceof Error ? error.message : String(error)}); run \`thothan game install repo\` to retry.`;
+	}
+};
 const startGame = async (ctx, input) => {
 	const title = input.title.trim();
 	if (!title) throw new Error("A game needs a title.");
@@ -19524,12 +19575,14 @@ const startGame = async (ctx, input) => {
 		...created.session,
 		workspaceId
 	});
+	const clone = await cloneWorkspace(ctx.workspace, workspaceId, target, {
+		force: true,
+		server: ctx.server
+	});
 	return {
+		cloud: cloudReady(target),
 		dir: target,
-		revision: (await cloneWorkspace(ctx.workspace, workspaceId, target, {
-			force: true,
-			server: ctx.server
-		})).revision,
+		revision: clone.revision,
 		session: created.session,
 		workspaceId
 	};
@@ -19558,6 +19611,7 @@ const openGame = async (ctx, input) => {
 		const pulled = await pullCheckout(ctx.workspace, checkoutRoot);
 		remember(ctx, checkoutRoot, session);
 		return {
+			cloud: cloudReady(checkoutRoot),
 			dir: checkoutRoot,
 			pulled: true,
 			revision: pulled.revision,
@@ -19568,13 +19622,15 @@ const openGame = async (ctx, input) => {
 	const target = sameGame && localRoot ? localRoot : checkoutTarget(input.cwd, session.title, input.dir);
 	if (!isEmptyFolder(target)) throw new Error(`${target} is not empty. Choose an empty folder for the checkout.`);
 	remember(ctx, target, session);
+	const clone = await cloneWorkspace(ctx.workspace, session.workspaceId, target, {
+		force: true,
+		server: ctx.server
+	});
 	return {
+		cloud: cloudReady(target),
 		dir: target,
 		pulled: false,
-		revision: (await cloneWorkspace(ctx.workspace, session.workspaceId, target, {
-			force: true,
-			server: ctx.server
-		})).revision,
+		revision: clone.revision,
 		session
 	};
 };
@@ -20314,9 +20370,10 @@ const createGameMcpServer = (options) => {
 				activeRoot = started.dir;
 				return text([
 					`Started "${started.session.title}" in ${started.dir} (workspace revision ${started.revision}).`,
+					started.cloud,
 					sessionLines(started.session),
 					`Next: game_genesis_startGameProject with codeWorkspaceId "${started.workspaceId}" and codeWorkspaceRevision ${started.revision}. Then run \`npm install\` in the folder.`
-				].join("\n"));
+				].filter(Boolean).join("\n"));
 			}
 			case "thothan_open_game": {
 				const opened = await openGame(ctx, {
@@ -20327,7 +20384,11 @@ const createGameMcpServer = (options) => {
 					topicId: args.topicId
 				});
 				activeRoot = opened.dir;
-				return text([`${opened.pulled ? "Updated" : "Checked out"} "${opened.session.title}" in ${opened.dir} at revision ${opened.revision}.`, sessionLines(opened.session)].join("\n"));
+				return text([
+					`${opened.pulled ? "Updated" : "Checked out"} "${opened.session.title}" in ${opened.dir} at revision ${opened.revision}.`,
+					opened.cloud,
+					sessionLines(opened.session)
+				].filter(Boolean).join("\n"));
 			}
 			case "thothan_status": {
 				const current = await folder();
@@ -20566,6 +20627,7 @@ function registerGameCommand(program) {
 			});
 			console.log(`${import_picocolors.default.green("✓")} Started "${started.session.title}" in ${import_picocolors.default.bold(started.dir)} (revision ${started.revision})`);
 			printSession(started.session);
+			if (started.cloud) console.log(import_picocolors.default.dim(`  ${started.cloud}`));
 			console.log(import_picocolors.default.dim(`  next: open the folder in Claude Code or Codex and ask it to build the game (cd ${path.relative(process.cwd(), started.dir) || "."} && npm install)`));
 		} catch (error) {
 			fail(error);
@@ -20582,6 +20644,7 @@ function registerGameCommand(program) {
 			});
 			console.log(`${import_picocolors.default.green("✓")} ${opened.pulled ? "Updated" : "Checked out"} "${opened.session.title}" in ${import_picocolors.default.bold(opened.dir)} (revision ${opened.revision})`);
 			printSession(opened.session);
+			if (opened.cloud) console.log(import_picocolors.default.dim(`  ${opened.cloud}`));
 		} catch (error) {
 			fail(error);
 		}

@@ -43,37 +43,39 @@ You need Node.js 18 or newer. The games are Vite projects, so `npm` is needed to
 
 ## Cloud sessions
 
-Cloud sessions (Claude Code on the web, Codex cloud) start from a fresh clone of a GitHub
-repository and install no plugins. They do read the repository's own agent files, so put the
-plugin in the game's repository:
+Claude Code on the web and Codex cloud work like Claude Code on your machine, with two
+differences:
 
-In the game's repository:
+1. **Push the game folder to GitHub.** Cloud sessions install no plugins; they use what the
+   repository contains. The plugin makes every game folder ready for this when it starts or
+   opens a game: it adds `.thothan/` (the plugin's CLI), `.mcp.json`, the skill and `AGENTS.md`.
+   Commit them with the game. None of them are pushed into the game itself.
+2. **Allow Thổ Thần in the cloud environment, once.** Set its network access to **Custom** and
+   add `thothan.appota.ai` (keep the default list ticked). In Codex, allow agent internet
+   access to `thothan.appota.ai`.
 
-```bash
-git clone --depth 1 https://github.com/appota-ai/thothan /tmp/thothan
-node /tmp/thothan/bin/thothan.mjs game install repo
-git add .thothan .claude .agents .codex .mcp.json AGENTS.md && git commit -m "Add Thổ Thần"
-```
+Then ask for your game. The first time in a session the agent shows a sign-in link and code;
+approve it on any device, as on your machine. A session that sits idle long enough to lose its
+machine asks again.
 
-This writes the bundled CLI to `.thothan/`, the skill to `.claude/skills/` and `.agents/skills/`,
-the commands as `/thothan-new` and `/thothan-continue`, project MCP entries in `.mcp.json` and
-`.codex/config.toml`, and an `AGENTS.md` section with the CLI steps for agents that start no MCP
-servers. Run it again to update. None of these files are pushed into the game.
+A game folder inside a larger repository is left alone; run `thothan game install repo` in that
+repository to set it up.
 
-Sign in without a browser with an API key from
+<details>
+<summary>Advanced: sessions nobody is watching (scheduled tasks)</summary>
+
+Without someone to approve a link, sign in with an API key from
 [Settings → API Keys](https://thothan.appota.ai/settings/apikey):
 
-- **Claude Code on the web.** In the cloud environment, add a network secret for host
-  `thothan.appota.ai`: header `X-API-Key`, no prefix, the key as the value. Add the environment
-  variable `THOTHAN_AUTH=proxy`. The key never enters the session: the environment's proxy
-  attaches it to requests for Thổ Thần.
-- **Codex cloud.** Set the environment variable `LOBEHUB_CLI_API_KEY` to the key (Codex removes
-  secrets before the agent runs, so a secret would not reach it), and allow agent internet access
-  to `thothan.appota.ai`. Anyone who can open the environment can read its variables.
+- **Claude Code:** add a network secret to the environment for host `thothan.appota.ai`
+  (header `X-API-Key`, no prefix, the key as the value) and the variable
+  `THOTHAN_AUTH=proxy`. The key never enters the session.
+- **Codex:** set the variable `LOBEHUB_CLI_API_KEY` (Codex removes secrets before the agent
+  runs). Anyone who can open the environment can read it.
 
-A key from the environment is only ever sent to `thothan.appota.ai`. Without one, the agent can
-still sign in with `thothan_login`; you approve the link on any device, but the sign-in lasts only
-as long as the session's machine.
+A key from the environment is only ever sent to `thothan.appota.ai`.
+
+</details>
 
 ## What you need
 
