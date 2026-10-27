@@ -19931,6 +19931,9 @@ init_urls();
 * (the procedure, recipes, style lists) need no game and are not recorded.
 */
 const MCP_SERVER_NAME = "thothan";
+const NOT_SIGNED_IN_YET = "Not signed in to Thổ Thần yet: call thothan_login first. If the creator is approving a sign-in, ask them to finish, then try again.";
+/** How long a call waits for a sign-in the creator is approving right now. */
+const LOGIN_GRACE_MS = 15e3;
 const NO_WORKDIR = "This client does not say which folder the project is in. Call thothan_status (or thothan_start_game / thothan_open_game) with workdir: the absolute path of your working folder.";
 const SERVICE_PREFIXES = {
 	"appota-gtd": "gtd",
@@ -20308,6 +20311,23 @@ const createGameMcpServer = (options) => {
 		return services;
 	};
 	let pendingLogin;
+	/**
+	* Signed in, or about to be: the creator may have just approved a pending
+	* sign-in that the background poll (every few seconds) has not picked up yet.
+	* Wait for it briefly instead of answering "not signed in" again.
+	*/
+	const signedIn = async () => {
+		if (await isSignedIn()) return true;
+		const pending = pendingLogin;
+		if (!pending) return false;
+		let timer;
+		await Promise.race([pending.done.catch(() => false), new Promise((resolve) => {
+			timer = setTimeout(resolve, LOGIN_GRACE_MS);
+		})]);
+		clearTimeout(timer);
+		resetTokenCache();
+		return isSignedIn();
+	};
 	const gateway = () => usesGateway(server.getClientVersion()?.name);
 	server.setRequestHandler(ListToolsRequestSchema, async () => {
 		if (gateway()) return { tools: [...LOCAL_TOOLS, ...GATEWAY_TOOLS] };
@@ -20346,7 +20366,7 @@ const createGameMcpServer = (options) => {
 		if (!name.startsWith("thothan_")) return void 0;
 		if (name === "thothan_login") return login();
 		useWorkdir(args.workdir);
-		if (!await isSignedIn()) return text("Not signed in to Thổ Thần yet: call thothan_login first.", true);
+		if (!await signedIn()) return text(NOT_SIGNED_IN_YET, true);
 		if (name === "thothan_call") return void 0;
 		if (name === "thothan_find_tools") {
 			const { tools } = await serviceTools();
@@ -20474,7 +20494,7 @@ const createGameMcpServer = (options) => {
 				args = inner;
 				if (name.startsWith("thothan_")) return text(`Call ${name} directly.`, true);
 			}
-			if (!await isSignedIn()) return text("Not signed in to Thổ Thần yet: call thothan_login first.", true);
+			if (!await signedIn()) return text(NOT_SIGNED_IN_YET, true);
 			const { routes } = await serviceTools();
 			const route = routes.get(name);
 			if (!route) return text(`Unknown tool: ${name}`, true);
