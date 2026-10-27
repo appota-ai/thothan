@@ -139,7 +139,8 @@ for one.
 - **Install and serve narrowly.** Install with `npm install --ignore-scripts`, and keep the
   dev server on `127.0.0.1`.
 - **Sign-in stays with the creator.** Hand over only the link and code that `thothan_login`
-  returns. Never ask for or handle passwords or tokens, and never read `~/.lobehub/`.
+  returns. Never ask for or handle passwords or tokens, and never read `~/.thothan/cli/`
+  (or the older `~/.lobehub/`).
 
 ## Build loop
 

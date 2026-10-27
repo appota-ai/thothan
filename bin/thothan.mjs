@@ -5006,6 +5006,33 @@ var init_urls = __esmMin((() => {
 }));
 
 //#endregion
+//#region src/utils/cliHome.ts
+var DIR_PATH, LEGACY_DIR_NAME, resolved, cliHomeDir;
+var init_cliHome = __esmMin((() => {
+	DIR_PATH = [".thothan", "cli"];
+	LEGACY_DIR_NAME = ".lobehub";
+	;
+	cliHomeDir = () => {
+		if (resolved) return resolved;
+		const home = os.homedir();
+		const override = process.env.THOTHAN_CLI_HOME || process.env.LOBEHUB_CLI_HOME;
+		if (override) return resolved = path.join(home, override);
+		const dir = path.join(home, ...DIR_PATH);
+		const legacy = path.join(home, LEGACY_DIR_NAME);
+		if (!fs.existsSync(dir) && fs.existsSync(legacy)) try {
+			fs.mkdirSync(path.dirname(dir), {
+				mode: 448,
+				recursive: true
+			});
+			fs.renameSync(legacy, dir);
+		} catch {
+			return resolved = legacy;
+		}
+		return resolved = dir;
+	};
+}));
+
+//#endregion
 //#region src/utils/logger.ts
 var verbose, timestamp, log;
 var init_logger = __esmMin((() => {
@@ -5100,12 +5127,12 @@ function loadSettings() {
 		return null;
 	}
 }
-var LOBEHUB_DIR_NAME$1, SETTINGS_DIR, SETTINGS_FILE;
+var SETTINGS_DIR, SETTINGS_FILE;
 var init_settings = __esmMin((() => {
 	init_urls();
+	init_cliHome();
 	init_logger();
-	LOBEHUB_DIR_NAME$1 = process.env.LOBEHUB_CLI_HOME || ".lobehub";
-	SETTINGS_DIR = path.join(os.homedir(), LOBEHUB_DIR_NAME$1);
+	SETTINGS_DIR = cliHomeDir();
 	SETTINGS_FILE = path.join(SETTINGS_DIR, "settings.json");
 }));
 
@@ -5205,10 +5232,10 @@ async function withCredentialsLock(work, timeoutMs = 2e4) {
 		}
 	}
 }
-var LOBEHUB_DIR_NAME, CREDENTIALS_DIR, CREDENTIALS_FILE, CREDENTIALS_LOCK, LOCK_STALE_MS;
+var CREDENTIALS_DIR, CREDENTIALS_FILE, CREDENTIALS_LOCK, LOCK_STALE_MS;
 var init_credentials = __esmMin((() => {
-	LOBEHUB_DIR_NAME = process.env.LOBEHUB_CLI_HOME || ".lobehub";
-	CREDENTIALS_DIR = path.join(os.homedir(), LOBEHUB_DIR_NAME);
+	init_cliHome();
+	CREDENTIALS_DIR = cliHomeDir();
 	CREDENTIALS_FILE = path.join(CREDENTIALS_DIR, "credentials.json");
 	CREDENTIALS_LOCK = path.join(CREDENTIALS_DIR, "credentials.lock");
 	LOCK_STALE_MS = 3e4;
@@ -20355,7 +20382,7 @@ const createGameMcpServer = (options) => {
 			await openBrowser(started.verifyUrl).catch(() => false);
 		}
 		return text([
-			...pendingLogin.serverUrl !== "https://thothan.appota.ai" ? [`This signs in to ${pendingLogin.serverUrl}, not the official Thổ Thần server (${OFFICIAL_SERVER_URL}); LOBEHUB_SERVER or ~/.lobehub/settings.json chose it. Tell the creator, and approve only if they set it themselves.`] : [],
+			...pendingLogin.serverUrl !== "https://thothan.appota.ai" ? [`This signs in to ${pendingLogin.serverUrl}, not the official Thổ Thần server (${OFFICIAL_SERVER_URL}); LOBEHUB_SERVER or ~/.thothan/cli/settings.json chose it. Tell the creator, and approve only if they set it themselves.`] : [],
 			"Ask the creator to approve this sign-in in their browser:",
 			pendingLogin.verifyUrl,
 			`Code: ${pendingLogin.userCode}`,

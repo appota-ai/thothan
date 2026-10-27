@@ -95,7 +95,7 @@ Signing in uses Thổ Thần's OAuth device flow; no password or key goes throug
 
 You can also run `node bin/thothan.mjs login` in a terminal.
 
-The sign-in is stored in `~/.lobehub/`, readable only by your user. Claude Code, Codex and
+The sign-in is stored in `~/.thothan/cli/`, readable only by your user. Claude Code, Codex and
 the CLI on this machine share it, so you sign in once. It renews itself; after about 30
 days without use, you sign in again. `node bin/thothan.mjs logout` signs out.
 
@@ -107,11 +107,11 @@ days without use, you sign in again. `node bin/thothan.mjs logout` signs out.
   - It can publish a game. The skill tells it to publish only when you ask, but that is an
     instruction, not a technical block, so review publishing steps as you would any other.
   - Your sign-in token stays in the MCP server; no tool hands it to the agent, and the skill
-    forbids reading `~/.lobehub/`. The file there is encrypted with a key derived from this
+    forbids reading `~/.thothan/cli/`. The file there is encrypted with a key derived from this
     machine, which stops casual reading but not a program running as you. Treat it like an
     SSH key: anything you let run as your user can use it.
   - The token only ever goes to the server that issued it. If `LOBEHUB_SERVER` or
-    `~/.lobehub/settings.json` points somewhere else, the plugin acts signed out, and
+    `~/.thothan/cli/settings.json` points somewhere else, the plugin acts signed out, and
     `thothan_login` names the other server before you approve anything.
 - **Approve only codes you started.** Approve a sign-in code only when you just asked the
   agent to sign in. A code someone else sends you would give them your account.
