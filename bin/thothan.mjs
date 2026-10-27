@@ -5615,8 +5615,10 @@ playable-game skill (\`.agents/skills/playable-game/SKILL.md\`).
   - \`node ${REPO_BIN} game reference taka-game-genesis fetch_game_creation_procedure\` (reads that need no game)
   - \`node ${REPO_BIN} game call taka-game-genesis <api> '<json>'\`
   - \`node ${REPO_BIN} game push -m "<note>"\`, \`game pull\`, \`game note "<message>"\`
-- Not signed in? Call \`thothan_login\` (or run \`node ${REPO_BIN} login\`) and give the creator the link and
-  code; they approve it on any device. Never ask for, print, store or commit a key.
+- Not signed in? Call \`thothan_login\` and give the creator the link and code; they approve it on any device.
+  With the CLI, \`login\` waits for that approval and saves nothing if stopped, so keep it running: start
+  \`node ${REPO_BIN} login > /tmp/thothan-login.log 2>&1 &\`, read the link and code from the log, give them to
+  the creator, then wait until the log says "Login successful". Never ask for, print, store or commit a key.
 - The game itself is kept in Thổ Thần. To continue one in a fresh session, find it with
   \`game_genesis_list_studio_projects\` and open it with \`thothan_open_game\` (or \`game open --game <gameId>\`).
 - Asked to update Thổ Thần: run \`d=$(mktemp -d) && git clone -q --depth 1 ${PLUGIN_REPOSITORY} "$d" && node

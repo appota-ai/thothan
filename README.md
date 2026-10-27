@@ -47,7 +47,7 @@ You need Node.js 18 or newer. The games are Vite projects, so `npm` is needed to
 tap **Use this template**, pick the new repository in Claude Code or Codex, turn on the
 environment's internet access, and ask for a game.
 
-Claude Code on the web and Codex cloud work like Claude Code on your machine, with two
+Claude Code on the web and Codex cloud work like Claude Code on your machine, with three
 differences:
 
 1. **Push the game folder to GitHub.** Cloud sessions install no plugins; they use what the
@@ -57,6 +57,12 @@ differences:
 2. **Allow Thổ Thần in the cloud environment, once.** Set its network access to **Custom** and
    add `thothan.appota.ai` (keep the default list ticked). In Codex, allow agent internet
    access to `thothan.appota.ai`.
+3. **Let the agent run the tools.** Cloud sessions ignore the repository's pre-approved tools.
+   In Claude, keep the session's permission mode on **Auto** (the default); in other modes it
+   asks before each Thổ Thần tool. In Codex, start the task in **Full access** mode: in the
+   default mode its commands get no network, even with internet access on, and sign-in fails
+   with "fetch failed". Codex tasks also start no MCP servers, so the agent uses `.thothan/`'s
+   CLI, as `AGENTS.md` describes.
 
 Then ask for your game. The first time in a session the agent shows a sign-in link and code;
 approve it on any device, as on your machine. A session that sits idle long enough to lose its
