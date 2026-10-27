@@ -5538,6 +5538,10 @@ const REPO_MCP_ARGS = [
 	"mcp"
 ];
 const AGENTS_START = "<!-- thothan:start -->";
+const PLUGIN_REPOSITORY = "https://github.com/appota-ai/thothan";
+/** Approved up front in cloud sessions, which have nobody at a terminal; publishing still asks. */
+const CLAUDE_ALLOW = [`mcp__${MCP_SERVER_NAME$1}`, `Bash(node ${REPO_BIN}:*)`];
+const CLAUDE_ASK = ["publishGame", "publishStudio"].map((api) => `mcp__${MCP_SERVER_NAME$1}__game_genesis_${api}`);
 const AGENTS_END = "<!-- thothan:end -->";
 const withRepoMcpJson = (existing) => {
 	const parsed = existing.trim() ? JSON.parse(existing) : {};
@@ -5554,6 +5558,27 @@ const withRepoMcpJson = (existing) => {
 		mcpServers
 	}, null, 2)}\n`;
 };
+const withEntries = (list, entries) => {
+	const current = Array.isArray(list) ? list : [];
+	return [...current, ...entries.filter((entry) => !current.includes(entry))];
+};
+/** The repository's .claude/settings.json: the server enabled without a prompt and its tools allowed. */
+const withRepoClaudeSettings = (existing) => {
+	const parsed = existing.trim() ? JSON.parse(existing) : {};
+	if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error(".claude/settings.json is not a JSON object.");
+	const permissions = parsed.permissions ?? {};
+	return `${JSON.stringify({
+		...parsed,
+		enabledMcpjsonServers: withEntries(parsed.enabledMcpjsonServers, [MCP_SERVER_NAME$1]),
+		permissions: {
+			...permissions,
+			allow: withEntries(permissions.allow, CLAUDE_ALLOW),
+			ask: withEntries(permissions.ask, CLAUDE_ASK)
+		}
+	}, null, 2)}\n`;
+};
+/** Claude Code reads CLAUDE.md, not AGENTS.md, so CLAUDE.md imports it. */
+const withClaudeMdImport = (existing) => /^@AGENTS\.md\s*$/m.test(existing) ? existing : existing.trim() ? `${existing.replace(/\s*$/, "")}\n\n@AGENTS.md\n` : "@AGENTS.md\n";
 /** The repository's .codex/config.toml with this server's table set (replaced if present). */
 const withRepoCodexServer = (config) => {
 	const block = [
@@ -5592,6 +5617,11 @@ playable-game skill (\`.agents/skills/playable-game/SKILL.md\`).
   - \`node ${REPO_BIN} game push -m "<note>"\`, \`game pull\`, \`game note "<message>"\`
 - Not signed in? Call \`thothan_login\` (or run \`node ${REPO_BIN} login\`) and give the creator the link and
   code; they approve it on any device. Never ask for, print, store or commit a key.
+- The game itself is kept in Thổ Thần. To continue one in a fresh session, find it with
+  \`game_genesis_list_studio_projects\` and open it with \`thothan_open_game\` (or \`game open --game <gameId>\`).
+- Asked to update Thổ Thần: run \`d=$(mktemp -d) && git clone -q --depth 1 ${PLUGIN_REPOSITORY} "$d" && node
+  "$d/bin/thothan.mjs" game install repo --dir .\`, commit the changed files, and tell the creator the new
+  version loads in their next session.
 ${AGENTS_END}`;
 const withAgentsSection = (existing) => {
 	const start = existing.indexOf(AGENTS_START);
@@ -5674,6 +5704,8 @@ const installIntoRepository = (options = {}) => {
 			return true;
 		}],
 		[".mcp.json (Claude Code)", () => rewrite(path.join(root, ".mcp.json"), withRepoMcpJson)],
+		[".claude/settings.json (tools allowed; publishing asks)", () => rewrite(path.join(root, ".claude", "settings.json"), withRepoClaudeSettings)],
+		["CLAUDE.md (reads AGENTS.md)", () => rewrite(path.join(root, "CLAUDE.md"), withClaudeMdImport)],
 		[".codex/config.toml (Codex)", () => rewrite(path.join(root, ".codex", "config.toml"), withRepoCodexServer)],
 		["AGENTS.md (CLI steps for agents without MCP)", () => rewrite(path.join(root, "AGENTS.md"), withAgentsSection)]
 	];

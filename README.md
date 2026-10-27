@@ -43,6 +43,10 @@ You need Node.js 18 or newer. The games are Vite projects, so `npm` is needed to
 
 ## Cloud sessions
 
+**Only a phone?** Start from [appota-ai/thothan-starter](https://github.com/appota-ai/thothan-starter):
+tap **Use this template**, pick the new repository in Claude Code or Codex, turn on the
+environment's internet access, and ask for a game.
+
 Claude Code on the web and Codex cloud work like Claude Code on your machine, with two
 differences:
 
