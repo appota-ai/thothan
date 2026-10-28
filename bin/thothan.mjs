@@ -5616,9 +5616,10 @@ playable-game skill (\`.agents/skills/playable-game/SKILL.md\`).
   - \`node ${REPO_BIN} game call taka-game-genesis <api> '<json>'\`
   - \`node ${REPO_BIN} game push -m "<note>"\`, \`game pull\`, \`game note "<message>"\`
 - Not signed in? Call \`thothan_login\` and give the creator the link and code; they approve it on any device.
-  With the CLI, \`login\` waits for that approval and saves nothing if stopped, so keep it running: start
-  \`node ${REPO_BIN} login > /tmp/thothan-login.log 2>&1 &\`, read the link and code from the log, give them to
-  the creator, then wait until the log says "Login successful". Never ask for, print, store or commit a key.
+  With the CLI, run \`node ${REPO_BIN} login --no-wait\`, give the creator the link and code it prints, then run
+  \`node ${REPO_BIN} login --wait\` in the foreground (not in the background: some sandboxes stop background
+  processes) until it says "Login successful". If it stops before that, run \`login --wait\` again; the code
+  lasts 10 minutes. Never ask for, print, store or commit a key.
 - The game itself is kept in Thổ Thần. To continue one in a fresh session, find it with
   \`game_genesis_list_studio_projects\` and open it with \`thothan_open_game\` (or \`game open --game <gameId>\`).
 - Asked to update Thổ Thần: run \`d=$(mktemp -d) && git clone -q --depth 1 ${PLUGIN_REPOSITORY} "$d" && node
@@ -19786,6 +19787,41 @@ var init_apiKey = __esmMin((() => {
 }));
 
 //#endregion
+//#region src/auth/pendingLogin.ts
+function savePendingLogin(pending) {
+	const file = pendingFile();
+	fs.mkdirSync(path.dirname(file), {
+		mode: 448,
+		recursive: true
+	});
+	fs.writeFileSync(file, JSON.stringify(pending), { mode: 384 });
+}
+/** The pending sign-in, or undefined when there is none or its code has expired. */
+function loadPendingLogin() {
+	let pending;
+	try {
+		pending = JSON.parse(fs.readFileSync(pendingFile(), "utf8"));
+	} catch {
+		return;
+	}
+	if (!pending?.deviceCode || !(pending.expiresAt > Date.now())) {
+		clearPendingLogin();
+		return;
+	}
+	return pending;
+}
+function clearPendingLogin() {
+	try {
+		fs.rmSync(pendingFile(), { force: true });
+	} catch {}
+}
+var pendingFile;
+var init_pendingLogin = __esmMin((() => {
+	init_cliHome();
+	pendingFile = () => path.join(cliHomeDir(), "pending-login.json");
+}));
+
+//#endregion
 //#region src/commands/login.ts
 var login_exports = /* @__PURE__ */ __exportAll({
 	openBrowser: () => openBrowser,
@@ -19800,18 +19836,41 @@ async function parseJsonResponse(res, endpoint) {
 		throw new Error(`Expected JSON from ${endpoint}, got non-JSON response (status=${res.status}, content-type=${contentType}).`);
 	}
 }
+function saveServerSettings(serverUrl) {
+	const existingSettings = loadSettings();
+	saveSettings(existingSettings?.serverUrl === serverUrl ? {
+		gatewayUrl: existingSettings.gatewayUrl,
+		serverUrl
+	} : { serverUrl });
+}
+function showCode(verifyUrl, userCode) {
+	log.info("");
+	log.info("  Open this URL in your browser:");
+	log.info(`  ${verifyUrl}`);
+	log.info("");
+	log.info(`  Enter code: ${userCode}`);
+	log.info("");
+}
 function registerLoginCommand(program) {
-	program.command("login").description("Log in to LobeHub via browser (Device Code Flow) or configure API key server").option("--server <url>", "LobeHub server URL", OFFICIAL_SERVER_URL).action(async (options) => {
+	program.command("login").description("Log in to LobeHub via browser (Device Code Flow) or configure API key server").option("--server <url>", "LobeHub server URL", OFFICIAL_SERVER_URL).option("--wait", "Wait for the sign-in that `login --no-wait` started").option("--no-wait", "Show the sign-in link and code, then exit; finish with `login --wait`").action(async (options) => {
 		const serverUrl = normalizeUrl(options.server) || "https://thothan.appota.ai";
+		if (options.wait === true) {
+			const pending = loadPendingLogin();
+			if (!pending) {
+				log.error("No sign-in is waiting. Run `login --no-wait` to start one.");
+				process.exit(1);
+				return;
+			}
+			showCode(pending.verifyUrl, pending.userCode);
+			log.info("Waiting for authorization...");
+			await pollForToken(pending);
+			return;
+		}
 		log.info("Starting login...");
 		const apiKey = process.env[CLI_API_KEY_ENV];
 		if (apiKey) try {
 			await getUserIdFromApiKey(apiKey, serverUrl);
-			const existingSettings = loadSettings();
-			saveSettings(existingSettings?.serverUrl === serverUrl ? {
-				gatewayUrl: existingSettings.gatewayUrl,
-				serverUrl
-			} : { serverUrl });
+			saveServerSettings(serverUrl);
 			log.info("Login successful! Credentials saved.");
 			return;
 		} catch (error) {
@@ -19844,68 +19903,80 @@ function registerLoginCommand(program) {
 			process.exit(1);
 			return;
 		}
-		const verifyUrl = deviceAuth.verification_uri_complete || deviceAuth.verification_uri;
-		log.info("");
-		log.info("  Open this URL in your browser:");
-		log.info(`  ${verifyUrl}`);
-		log.info("");
-		log.info(`  Enter code: ${deviceAuth.user_code}`);
-		log.info("");
-		if (!await openBrowser(verifyUrl)) log.warn("Could not open browser automatically.");
-		log.info("Waiting for authorization...");
-		const interval = (deviceAuth.interval || 5) * 1e3;
-		const expiresAt = Date.now() + deviceAuth.expires_in * 1e3;
-		let pollInterval = interval;
-		while (Date.now() < expiresAt) {
-			await sleep(pollInterval);
-			try {
-				const body = await parseJsonResponse(await fetch(`${serverUrl}/oidc/token`, {
-					body: new URLSearchParams({
-						client_id: CLIENT_ID,
-						device_code: deviceAuth.device_code,
-						grant_type: "urn:ietf:params:oauth:grant-type:device_code"
-					}),
-					headers: { "Content-Type": "application/x-www-form-urlencoded" },
-					method: "POST"
-				}), "/oidc/token");
-				if (body.error) switch (body.error) {
-					case "authorization_pending": break;
-					case "slow_down":
-						pollInterval += 5e3;
-						break;
-					case "access_denied":
-						log.error("Authorization denied by user.");
-						process.exit(1);
-						return;
-					case "expired_token":
-						log.error("Device code expired. Please run login again.");
-						process.exit(1);
-						return;
-					default:
-						log.error(`Authorization error: ${body.error} - ${body.error_description || ""}`);
-						process.exit(1);
-						return;
-				}
-				else if (body.access_token) {
-					saveCredentials({
-						accessToken: body.access_token,
-						expiresAt: body.expires_in ? Math.floor(Date.now() / 1e3) + body.expires_in : void 0,
-						refreshToken: body.refresh_token,
-						serverUrl
-					});
-					const existingSettings = loadSettings();
-					saveSettings(existingSettings?.serverUrl === serverUrl ? {
-						gatewayUrl: existingSettings.gatewayUrl,
-						serverUrl
-					} : { serverUrl });
-					log.info("Login successful! Credentials saved.");
-					return;
-				}
-			} catch {}
+		const pending = {
+			deviceCode: deviceAuth.device_code,
+			expiresAt: Date.now() + deviceAuth.expires_in * 1e3,
+			interval: deviceAuth.interval || 5,
+			serverUrl,
+			userCode: deviceAuth.user_code,
+			verifyUrl: deviceAuth.verification_uri_complete || deviceAuth.verification_uri
+		};
+		showCode(pending.verifyUrl, pending.userCode);
+		if (!await openBrowser(pending.verifyUrl)) log.warn("Could not open browser automatically.");
+		if (options.wait === false) {
+			savePendingLogin(pending);
+			log.info("Next, run `login --wait`: it finishes signing in once the code is approved.");
+			return;
 		}
-		log.error("Device code expired. Please run login again.");
-		process.exit(1);
+		log.info("Waiting for authorization...");
+		await pollForToken(pending);
 	});
+}
+async function pollForToken(pending) {
+	const { serverUrl } = pending;
+	let pollInterval = pending.interval * 1e3;
+	let lastPollError;
+	const fail = (message) => {
+		clearPendingLogin();
+		log.error(message);
+		process.exit(1);
+	};
+	while (Date.now() < pending.expiresAt) {
+		await sleep(pollInterval);
+		try {
+			const body = await parseJsonResponse(await fetch(`${serverUrl}/oidc/token`, {
+				body: new URLSearchParams({
+					client_id: CLIENT_ID,
+					device_code: pending.deviceCode,
+					grant_type: "urn:ietf:params:oauth:grant-type:device_code"
+				}),
+				headers: { "Content-Type": "application/x-www-form-urlencoded" },
+				method: "POST"
+			}), "/oidc/token");
+			if (body.error) switch (body.error) {
+				case "authorization_pending": break;
+				case "slow_down":
+					pollInterval += 5e3;
+					break;
+				case "access_denied":
+					fail("Authorization denied by user.");
+					return;
+				case "expired_token":
+					fail("Device code expired. Please run login again.");
+					return;
+				default:
+					fail(`Authorization error: ${body.error} - ${body.error_description || ""}`);
+					return;
+			}
+			else if (body.access_token) {
+				saveCredentials({
+					accessToken: body.access_token,
+					expiresAt: body.expires_in ? Math.floor(Date.now() / 1e3) + body.expires_in : void 0,
+					refreshToken: body.refresh_token,
+					serverUrl
+				});
+				saveServerSettings(serverUrl);
+				clearPendingLogin();
+				log.info("Login successful! Credentials saved.");
+				return;
+			}
+		} catch (error) {
+			const message = error instanceof Error ? error.message : String(error);
+			if (message !== lastPollError) log.warn(`Could not check the sign-in, retrying: ${message}`);
+			lastPollError = message;
+		}
+	}
+	fail("Device code expired. Please run login again.");
 }
 function sleep(ms) {
 	return new Promise((resolve) => setTimeout(resolve, ms));
@@ -19970,6 +20041,7 @@ var CLIENT_ID, SCOPES;
 var init_login = __esmMin((() => {
 	init_apiKey();
 	init_credentials();
+	init_pendingLogin();
 	init_auth();
 	init_urls();
 	init_settings();
