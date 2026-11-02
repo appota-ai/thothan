@@ -90,9 +90,10 @@ A key from the environment is only ever sent to `thothan.appota.ai`.
 ## Tours
 
 Ask for a Playable Tour (a walk or hunt through real places, with stops and challenges) the same
-way. The agent starts it with `thothan_start_game` and `kind: "tour"`, plans it with the Tour
-service, imports art and sound into the Tour, builds it, and publishes only when you ask. You need
-a Tour author (Playable app → Create → Authors). Live rooms with invited players stay in the app.
+way, or use `/thothan:new-tour <idea>` in Claude Code. The `playable-tour` skill starts it with
+`thothan_start_game` and `kind: "tour"`, plans it with the Tour service, imports art and sound
+into the Tour, builds it, and publishes only when you ask. You need a Tour author (Playable app →
+Create → Authors). Live rooms with invited players stay in the app.
 To continue a Tour made in the app, give the agent its id (`tour_…`).
 
 ## What you need
@@ -164,6 +165,8 @@ Report a vulnerability as described in [SECURITY.md](SECURITY.md).
 - **Every call runs on Thổ Thần, against the game's production chat**, and is recorded
   there as the author's step. Pushes from the folder become workspace revisions, which the
   app's preview and revisions follow.
+- **The `playable-tour` skill** does the same for Tours, from the Tour service's guidance and
+  the in-app Tour author's rules.
 - **The `playable-game` skill** teaches the agent the procedure. It reads the canonical
   procedure from Game Genesis, then applies what changes when working locally.
 

@@ -5397,7 +5397,7 @@ const createGameTrpcClient = (serverUrl) => createTRPCClient({ links: [httpLink(
 *
 * The plugin is published from the GitHub repo `appota-ai/thothan`, as
 * `thothan@appota-ai` (plugin `thothan` in the `appota-ai` marketplace): the
-* playable-game skill, two commands and an MCP server entry that runs this
+* playable-game and playable-tour skills, commands and an MCP server entry that runs this
 * CLI's `game mcp`, bundled into the repo as `bin/thothan.mjs`. Claude Code
 * and Codex both install it from that marketplace; earlier Codex installs
 * copied the skill and wrote the server into config.toml by hand, and those
@@ -5541,7 +5541,7 @@ const AGENTS_START = "<!-- thothan:start -->";
 const PLUGIN_REPOSITORY = "https://github.com/appota-ai/thothan";
 /** Approved up front in cloud sessions, which have nobody at a terminal; publishing still asks. */
 const CLAUDE_ALLOW = [`mcp__${MCP_SERVER_NAME$1}`, `Bash(node ${REPO_BIN}:*)`];
-const CLAUDE_ASK = ["publishGame", "publishStudio"].map((api) => `mcp__${MCP_SERVER_NAME$1}__game_genesis_${api}`);
+const CLAUDE_ASK = [...["publishGame", "publishStudio"].map((api) => `mcp__${MCP_SERVER_NAME$1}__game_genesis_${api}`), ...["publish_tour", "unpublish_tour"].map((api) => `mcp__${MCP_SERVER_NAME$1}__tour_${api}`)];
 const AGENTS_END = "<!-- thothan:end -->";
 const withRepoMcpJson = (existing) => {
 	const parsed = existing.trim() ? JSON.parse(existing) : {};
@@ -5604,7 +5604,8 @@ const AGENTS_SECTION = `${AGENTS_START}
 ## Playable game (Thổ Thần)
 
 This repository builds a Playable game, or a Playable Tour, with the Thổ Thần plugin, vendored in \`.thothan/\`.
-Follow the playable-game skill (\`.agents/skills/playable-game/SKILL.md\`; for a Tour, its \`references/tour.md\`).
+Follow the playable-game skill (\`.agents/skills/playable-game/SKILL.md\`), or for a Tour the playable-tour skill
+(\`.agents/skills/playable-tour/SKILL.md\`).
 
 - When the \`thothan\` MCP tools are available, use them as the skill says.
 - Without them (some cloud environments start no MCP servers), run the same steps with the CLI. Service tool
@@ -5696,17 +5697,22 @@ const installIntoRepository = (options = {}) => {
 	const bundle = path.join(pluginRoot, "bin", "thothan.mjs");
 	if (!fs.existsSync(bundle)) throw new Error("Run this from the plugin bundle (node <plugin>/bin/thothan.mjs game install repo): only it can be vendored.");
 	const root = repositoryRoot(options.dir ?? process.cwd());
+	const listed = (dir, keep) => fs.existsSync(dir) ? fs.readdirSync(dir, { withFileTypes: true }).filter(keep).map((entry) => entry.name).sort() : [];
+	const skills = listed(path.join(pluginRoot, "skills"), (entry) => entry.isDirectory());
+	const commands = listed(path.join(pluginRoot, "commands"), (entry) => entry.isFile() && entry.name.endsWith(".md")).map((name) => name.slice(0, -3));
 	const writes = [
 		[REPO_BIN, () => {
 			fs.mkdirSync(path.join(root, ".thothan"), { recursive: true });
 			fs.copyFileSync(bundle, path.join(root, REPO_BIN));
 			return true;
 		}],
-		[".claude/skills/playable-game/", () => (copyTree(path.join(pluginRoot, "skills", SKILL_NAME), path.join(root, ".claude", "skills", SKILL_NAME)), true)],
-		[".agents/skills/playable-game/", () => (copyTree(path.join(pluginRoot, "skills", SKILL_NAME), path.join(root, ".agents", "skills", SKILL_NAME)), true)],
-		[".claude/commands/thothan-new.md, thothan-continue.md", () => {
+		...[".claude", ".agents"].map((home) => [`${home}/skills/${skills.join("/, ")}/`, () => {
+			for (const skill of skills) copyTree(path.join(pluginRoot, "skills", skill), path.join(root, home, "skills", skill));
+			return true;
+		}]),
+		[`.claude/commands/${commands.map((name) => `thothan-${name}.md`).join(", ")}`, () => {
 			fs.mkdirSync(path.join(root, ".claude", "commands"), { recursive: true });
-			for (const name of ["new", "continue"]) fs.copyFileSync(path.join(pluginRoot, "commands", `${name}.md`), path.join(root, ".claude", "commands", `thothan-${name}.md`));
+			for (const name of commands) fs.copyFileSync(path.join(pluginRoot, "commands", `${name}.md`), path.join(root, ".claude", "commands", `thothan-${name}.md`));
 			return true;
 		}],
 		[".mcp.json (Claude Code)", () => rewrite(path.join(root, ".mcp.json"), withRepoMcpJson)],
@@ -20312,7 +20318,7 @@ const GATEWAY_TOOLS = [{
 	}),
 	name: "thothan_find_tools"
 }, {
-	description: "Run one Game Genesis, Playable Tour, Image Forge, Sound Sage or checklist (gtd) API by the name the playable-game skill uses, e.g. game_genesis_startGameProject or tour_create_tour_draft. Read its argument schema with thothan_find_tools first.",
+	description: "Run one Game Genesis, Playable Tour, Image Forge, Sound Sage or checklist (gtd) API by the name the playable-game and playable-tour skills use, e.g. game_genesis_startGameProject or tour_create_tour_draft. Read its argument schema with thothan_find_tools first.",
 	inputSchema: object({
 		arguments: {
 			description: "The API’s arguments, as its schema describes.",
@@ -20448,7 +20454,7 @@ const createGameMcpServer = (options) => {
 		version: "1.0.0"
 	}, {
 		capabilities: { tools: { listChanged: true } },
-		instructions: "Build Playable games and Tours locally, in step with the Playable app. Follow the playable-game skill; start with thothan_status, passing workdir."
+		instructions: "Build Playable games and Tours locally, in step with the Playable app. Follow the playable-game skill (games) or the playable-tour skill (Tours); start with thothan_status, passing workdir."
 	});
 	const context = () => options.context(server.getClientVersion()?.name ?? "coding-agent");
 	/**

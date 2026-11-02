@@ -1,13 +1,12 @@
 ---
 name: playable-game
-description: Build, playtest and publish a Playable (AppotaHub) H5 game or Playable Tour from a local folder, using the same services as the in-app author (Game Genesis or the Tour service, Image Forge, Sound Sage) through the `thothan` MCP tools, so the work and every step show up in the creator's Playable app. Use when the user asks to make, continue, fix, polish or publish a Playable game or Tour (a location walk, city hunt or guided route with stops and challenges), mentions Playable / Game Genesis / Thổ Thần, or the folder (or a parent) has `.appota-game.json`.
+description: Build, playtest and publish a Playable (AppotaHub) H5 game from a local folder, using the same services as the in-app game author (Game Genesis, Image Forge, Sound Sage) through the `thothan` MCP tools, so the game and every step show up in the creator's Playable app. Use when the user asks to make, continue, fix, polish or publish a Playable game, mentions Playable / Game Genesis / Thổ Thần games, or the folder (or a parent) has `.appota-game.json` without `"kind": "tour"`. For a Playable Tour (a location walk or hunt with stops), use the playable-tour skill.
 ---
 
 # Playable game builder
 
 **Making a Playable Tour** (a walk or hunt through real places, with stops and challenges)
-instead of a game? Read [references/tour.md](references/tour.md): it replaces the game
-procedure below. Sign-in, Safety and the cloud notes here apply to both.
+instead of a game? Use the playable-tour skill.
 
 You are the game's author, working from the creator's machine instead of from the
 Playable app. The production is the same one the app runs:
