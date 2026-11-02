@@ -3034,14 +3034,14 @@ var import_picocolors$1 = /* @__PURE__ */ __toESM$2(require_picocolors(), 1);
 const createGameApi = (client) => {
 	const game = client.playableGame;
 	return {
-		authors: () => game.authors.query(),
+		authors: (kind) => game.authors.query(kind && kind !== "games" ? { kind } : void 0),
 		callTool: (input) => game.callTool.mutate(input),
 		note: (input) => game.note.mutate(input),
 		open: (input) => game.open.mutate(input),
 		reference: (input) => game.reference.mutate(input),
 		session: (topicId) => game.session.query({ topicId }),
 		sync: (input) => game.sync.mutate(input),
-		tools: () => game.tools.query()
+		tools: (kind) => game.tools.query(kind && kind !== "games" ? { kind } : void 0)
 	};
 };
 
@@ -5603,16 +5603,19 @@ const withRepoCodexServer = (config) => {
 const AGENTS_SECTION = `${AGENTS_START}
 ## Playable game (Thổ Thần)
 
-This repository builds a Playable game with the Thổ Thần plugin, vendored in \`.thothan/\`. Follow the
-playable-game skill (\`.agents/skills/playable-game/SKILL.md\`).
+This repository builds a Playable game, or a Playable Tour, with the Thổ Thần plugin, vendored in \`.thothan/\`.
+Follow the playable-game skill (\`.agents/skills/playable-game/SKILL.md\`; for a Tour, its \`references/tour.md\`).
 
 - When the \`thothan\` MCP tools are available, use them as the skill says.
 - Without them (some cloud environments start no MCP servers), run the same steps with the CLI. Service tool
   \`game_genesis_<api>\` is \`game call taka-game-genesis <api>\`; likewise \`image_forge_\` → \`taka-image-forge\`,
-  \`sound_sage_\` → \`taka-sound-sage\`, \`gtd_\` → \`appota-gtd\`.
+  \`sound_sage_\` → \`taka-sound-sage\`, \`gtd_\` → \`appota-gtd\`, \`tour_\` → \`taka-playable-tour\`,
+  \`code_workspace_\` → \`appota-code-workspace\`.
   - \`node ${REPO_BIN} game status --json\`
-  - \`node ${REPO_BIN} game new "<title>" --prompt "<request>"\` or \`game open --game <gameId>\`
-  - \`node ${REPO_BIN} game reference taka-game-genesis fetch_game_creation_procedure\` (reads that need no game)
+  - \`node ${REPO_BIN} game new "<title>" --prompt "<request>"\` or \`game open --game <gameId>\`; for a Tour,
+    \`game new "<title>" --tour --prompt "<request>"\` or \`game open --tour <tourId>\`
+  - \`node ${REPO_BIN} game reference taka-game-genesis fetch_game_creation_procedure\` (reads that need no game;
+    for a Tour, \`game reference taka-playable-tour fetch_tour_author_guide\`)
   - \`node ${REPO_BIN} game call taka-game-genesis <api> '<json>'\`
   - \`node ${REPO_BIN} game push -m "<note>"\`, \`game pull\`, \`game note "<message>"\`
 - Not signed in? Call \`thothan_login\` and give the creator the link and code; they approve it on any device.
@@ -19476,9 +19479,11 @@ const parseGameSession = (text) => {
 		agentId: parsed.agentId,
 		client: optionalString(parsed.client),
 		gameId: optionalString(parsed.gameId),
+		...parsed.kind === "tour" && { kind: "tour" },
 		server: optionalString(parsed.server),
 		title: optionalString(parsed.title),
 		topicId: parsed.topicId,
+		tourId: optionalString(parsed.tourId),
 		version: 1,
 		workspaceId: optionalString(parsed.workspaceId)
 	};
@@ -19509,9 +19514,11 @@ const writeGameSession = (dir, update, options = {}) => {
 		agentId: update.agentId,
 		client: update.client ?? current?.client,
 		gameId: update.gameId ?? current?.gameId,
+		kind: update.kind ?? current?.kind,
 		server: options.server ?? current?.server,
 		title: update.title ?? current?.title,
 		topicId: update.topicId,
+		tourId: update.tourId ?? current?.tourId,
 		version: 1,
 		workspaceId: update.workspaceId ?? current?.workspaceId
 	};
@@ -19527,12 +19534,13 @@ const isEmptyFolder = (dir) => !fs.existsSync(dir) || fs.readdirSync(dir).every(
 //#endregion
 //#region src/game/workflow.ts
 /**
-* A Playable game built in a local folder: the folder is a Code Workspace
-* checkout, and the game production it belongs to lives on the hub, where every
-* service call runs and is recorded for the Playable app.
+* A Playable game (or Tour) built in a local folder: the folder is a Code
+* Workspace checkout, and the production it belongs to lives on the hub, where
+* every service call runs and is recorded for the Playable app.
 */
 const CODE_WORKSPACE = "appota-code-workspace";
 const GAME_GENESIS = "taka-game-genesis";
+const PLAYABLE_TOUR = "taka-playable-tour";
 /** Game Genesis calls that read the workspace, so they must see what is on disk. */
 const WORKSPACE_READING_APIS = new Set([
 	"checkGamePreview",
@@ -19542,8 +19550,17 @@ const WORKSPACE_READING_APIS = new Set([
 	"testGameMultiplayer",
 	"testGameProject"
 ]);
+/** Calls that read a Tour's workspace at a revision they name: the folder must be in it. */
+const TOUR_REVISION_APIS = {
+	[CODE_WORKSPACE]: new Set(["buildTourWorkspace"]),
+	[PLAYABLE_TOUR]: new Set(["link_tour_workspace"])
+};
 /** Arguments that pin a call to one revision: pushing first would make them stale. */
-const REVISION_ARGS = ["expectedRevision", "workspaceRevision"];
+const REVISION_ARGS = [
+	"expectedRevision",
+	"workspaceRevision",
+	"workspace_revision"
+];
 const NO_GAME_HINT = "Start one with 'thothan game new' (or the thothan_start_game tool), or check out an existing one with 'thothan game open' (thothan_open_game).";
 /**
 * The game a folder belongs to: the nearest one at or above `start`, or the only
@@ -19578,27 +19595,25 @@ const remember = (ctx, root, session) => writeGameSession(root, {
 	agentId: session.agentId,
 	client: ctx.client,
 	gameId: session.gameId,
+	...session.kind === "tour" && { kind: "tour" },
 	title: session.title,
 	topicId: session.topicId,
+	tourId: session.tourId,
 	workspaceId: session.workspaceId
 }, { server: ctx.server });
-const pickAuthor = async (ctx, agentId) => {
+const workName = (kind = "games") => kind === "tour" ? "Tour" : "game";
+const pickAuthor = async (ctx, agentId, kind = "games") => {
 	if (agentId) return agentId;
-	const authors = await ctx.api.authors();
+	const authors = await ctx.api.authors(kind);
 	if (authors.length === 1) return authors[0].id;
-	if (!authors.length) throw new Error("You have no game author yet. Create one in the Playable app (Create → Authors), then try again.");
-	throw new Error(`Pick the author that owns the game (agentId):\n${authors.map((author) => `  ${author.id}  ${author.name}`).join("\n")}`);
+	if (!authors.length) throw new Error(`You have no ${workName(kind)} author yet. Create one in the Playable app (Create → Authors), then try again.`);
+	throw new Error(`Pick the author that owns the ${workName(kind)} (agentId):\n${authors.map((author) => `  ${author.id}  ${author.name}`).join("\n")}`);
 };
 /** Where a new checkout goes: the folder itself when it is empty, else a subfolder named after the game. */
 const checkoutTarget = (cwd, title, dir) => {
 	if (dir) return path.resolve(cwd, dir);
 	return isEmptyFolder(cwd) ? path.resolve(cwd) : path.resolve(cwd, gameFolderName(title));
 };
-/**
-* A new game: the production in the app, its Code Workspace with the current
-* Vite + PixiJS scaffold, and a checkout of it. The Game Genesis project comes
-* next, from the agent's `startGameProject` with the brief it decides.
-*/
 /** Vendoring for cloud sessions is a convenience: it must never fail a start or an open. */
 const cloudReady = (dir) => {
 	try {
@@ -19607,32 +19622,43 @@ const cloudReady = (dir) => {
 		return `Could not make the folder cloud-ready (${error instanceof Error ? error.message : String(error)}); run \`thothan game install repo\` to retry.`;
 	}
 };
+/**
+* A new game: the production in the app, its Code Workspace with the current
+* Vite + PixiJS scaffold, and a checkout of it. The Game Genesis project comes
+* next, from the agent's `startGameProject` with the brief it decides.
+*
+* A new Tour the same way, from the dependency-free Tour scaffold; its draft
+* comes next, from the agent's `create_tour_draft`.
+*/
 const startGame = async (ctx, input) => {
+	const kind = input.kind ?? "games";
 	const title = input.title.trim();
-	if (!title) throw new Error("A game needs a title.");
+	if (!title) throw new Error(`A ${workName(kind)} needs a title.`);
 	const target = checkoutTarget(input.cwd, title, input.dir);
-	if (!isEmptyFolder(target)) throw new Error(`${target} is not empty. Choose an empty folder for the new game.`);
-	if (findCheckoutRoot(target) || findGameRoot(target)) throw new Error(`${target} is inside another game's folder. Choose a folder outside it.`);
-	const agentId = await pickAuthor(ctx, input.agentId);
+	if (!isEmptyFolder(target)) throw new Error(`${target} is not empty. Choose an empty folder for the new ${workName(kind)}.`);
+	if (findCheckoutRoot(target) || findGameRoot(target)) throw new Error(`${target} is inside another game or Tour's folder. Choose a folder outside it.`);
+	const agentId = await pickAuthor(ctx, input.agentId, kind);
 	const opened = await ctx.api.open({
 		agentId,
 		client: ctx.client,
+		...kind === "tour" && { kind },
 		prompt: input.prompt,
 		title
 	});
+	if (kind === "tour" && opened.kind !== "tour") throw new Error("This Thổ Thần server cannot make Tours from a local folder yet.");
 	remember(ctx, target, opened);
 	const created = await ctx.api.callTool({
 		apiName: "createWorkspace",
 		arguments: JSON.stringify({
 			description: (input.prompt ?? title).slice(0, 500),
 			title,
-			workspaceType: "game"
+			workspaceType: kind === "tour" ? "tour" : "game"
 		}),
 		identifier: CODE_WORKSPACE,
 		topicId: opened.topicId
 	});
 	const workspaceId = created.session.workspaceId ?? (typeof created.state?.workspaceId === "string" ? created.state.workspaceId : void 0);
-	if (!created.success || !workspaceId) throw new Error(`Could not create the game's Code Workspace: ${created.content}`);
+	if (!created.success || !workspaceId) throw new Error(`Could not create the ${workName(kind)}'s Code Workspace: ${created.content}`);
 	remember(ctx, target, {
 		...created.session,
 		workspaceId
@@ -19650,23 +19676,26 @@ const startGame = async (ctx, input) => {
 	};
 };
 /**
-* Continue a game from a local folder. A folder that already belongs to the
-* game keeps its chat; a game made in the app gets a new chat on it. The
+* Continue a game (or Tour) from a local folder. A folder that already belongs
+* to it keeps its chat; one made in the app gets a new chat on it. The
 * workspace is checked out, or the existing checkout brought up to date.
 */
 const openGame = async (ctx, input) => {
 	const base = path.resolve(input.cwd, input.dir ?? ".");
 	const localRoot = findGameRoot(base) ?? findChildGameRoots(base)[0];
 	const local = localRoot ? readGameSession(localRoot) : void 0;
-	const sameGame = local && (!local.server || local.server === ctx.server) && (input.topicId ? local.topicId === input.topicId : !input.gameId || local.gameId === input.gameId);
+	const sameGame = local && (!local.server || local.server === ctx.server) && (input.topicId ? local.topicId === input.topicId : input.tourId ? local.tourId === input.tourId : !input.gameId || local.gameId === input.gameId);
 	const topicId = input.topicId ?? (sameGame ? local.topicId : void 0);
-	if (!topicId && !input.gameId) throw new Error(`Name the game (gameId) or its chat (topicId). ${NO_GAME_HINT}`);
+	if (!topicId && !input.gameId && !input.tourId) throw new Error(`Name the game (gameId), the Tour (tourId) or its chat (topicId). ${NO_GAME_HINT}`);
 	const session = await ctx.api.open({
 		agentId: input.agentId,
 		client: ctx.client,
-		...topicId ? { topicId } : { gameId: input.gameId }
+		...topicId ? { topicId } : input.tourId ? {
+			kind: "tour",
+			tourId: input.tourId
+		} : { gameId: input.gameId }
 	});
-	if (!session.workspaceId) throw new Error(`"${session.title}" has no Code Workspace yet. Continue it in the Playable app, or start a new game.`);
+	if (!session.workspaceId) throw new Error(`"${session.title}" has no Code Workspace yet. Continue it in the Playable app, or start a new ${workName(session.kind)}.`);
 	const checkoutRoot = findCheckoutRoot(sameGame && localRoot ? localRoot : base);
 	const checkoutMeta = checkoutRoot ? readCheckoutMeta(checkoutRoot) : void 0;
 	if (checkoutRoot && checkoutMeta?.workspaceId === session.workspaceId) {
@@ -19728,7 +19757,11 @@ const pushGame = async (ctx, folder, options = {}) => {
 	};
 };
 /** Workspace calls whose result changes files: the folder takes them right after. */
-const WORKSPACE_WRITING_APIS = new Set(["revertWorkspace", "updateWorkspaceFiles"]);
+const WORKSPACE_WRITING_APIS = new Set([
+	"importTourImage",
+	"revertWorkspace",
+	"updateWorkspaceFiles"
+]);
 /**
 * One production call, run on the hub against the game's chat.
 *
@@ -19740,7 +19773,11 @@ const WORKSPACE_WRITING_APIS = new Set(["revertWorkspace", "updateWorkspaceFiles
 const callGameTool = async (ctx, folder, input) => {
 	let pushed;
 	let unpushed = false;
-	if (input.identifier === "taka-game-genesis" && WORKSPACE_READING_APIS.has(input.apiName) && hasLocalChanges(folder.root)) {
+	const localChanges = () => hasLocalChanges(folder.root);
+	if (input.identifier === "appota-code-workspace" && input.apiName === "importTourImage" && localChanges()) throw new Error("The folder has changes that are not pushed. Push them, then import with expectedRevision set to the new revision.");
+	if (input.identifier === "taka-playable-tour" && input.apiName === "publish_tour" && localChanges()) throw new Error("The folder has changes that are not pushed and built. Push them, link and build the new revision, then publish.");
+	if (TOUR_REVISION_APIS[input.identifier]?.has(input.apiName) && localChanges()) unpushed = true;
+	else if (input.identifier === "taka-game-genesis" && WORKSPACE_READING_APIS.has(input.apiName) && localChanges()) {
 		if (input.apiName === "publishGame") throw new Error("The folder has changes that are not pushed and tested. Push them, run testGameProject, then publish the revision that passed.");
 		if (REVISION_ARGS.some((key) => typeof input.args[key] === "number")) unpushed = true;
 		else pushed = (await pushGame(ctx, folder)).push;
@@ -20069,9 +20106,11 @@ const NOT_SIGNED_IN_YET = "Not signed in to Thổ Thần yet: call thothan_login
 const LOGIN_GRACE_MS = 15e3;
 const NO_WORKDIR = "This client does not say which folder the project is in. Call thothan_status (or thothan_start_game / thothan_open_game) with workdir: the absolute path of your working folder.";
 const SERVICE_PREFIXES = {
+	"appota-code-workspace": "code_workspace",
 	"appota-gtd": "gtd",
 	"taka-game-genesis": "game_genesis",
 	"taka-image-forge": "image_forge",
+	"taka-playable-tour": "tour",
 	"taka-sound-sage": "sound_sage"
 };
 const object = (properties, required = []) => ({
@@ -20082,6 +20121,11 @@ const object = (properties, required = []) => ({
 });
 const NOTE = {
 	description: "Optional. One or two sentences for the creator, shown in their Playable chat as the author’s message.",
+	type: "string"
+};
+const KIND = {
+	description: "\"tour\" for a Playable Tour; default \"games\".",
+	enum: ["games", "tour"],
 	type: "string"
 };
 const WORKDIR = {
@@ -20116,34 +20160,35 @@ const LOCAL_TOOLS = [
 		name: "thothan_login"
 	},
 	{
-		description: "List the author agents a new game can belong to (the Playable creator agents for games).",
-		inputSchema: object({}),
+		description: "List the author agents a new game (or, with kind \"tour\", a new Playable Tour) can belong to.",
+		inputSchema: object({ kind: KIND }),
 		name: "thothan_list_authors"
 	},
 	{
-		description: "Start a new Playable game: opens its production chat in the Playable app, creates its Code Workspace from the current Vite + PixiJS scaffold and checks it out locally. Call once per game, then call game_genesis_startGameProject with the returned workspaceId and revision.",
+		description: "Start a new Playable game, or with kind \"tour\" a Playable Tour: opens its production chat in the Playable app, creates its Code Workspace from the current scaffold (Vite + PixiJS for a game, dependency-free web for a Tour) and checks it out locally. Call once per work. A game continues with game_genesis_startGameProject; a Tour with tour_create_tour_draft.",
 		inputSchema: object({
 			agentId: {
-				description: "Author agent that owns the game. Optional when the creator has exactly one.",
+				description: "Author agent that owns the work. Optional when the creator has exactly one of that kind.",
 				type: "string"
 			},
 			dir: {
 				description: "Folder for the checkout, relative to the working directory. Default: the working directory when empty, else a new subfolder named after the game.",
 				type: "string"
 			},
+			kind: KIND,
 			prompt: {
 				description: "The creator’s request in their words. It opens the chat in the app.",
 				type: "string"
 			},
 			title: {
-				description: "Working title of the game.",
+				description: "Working title of the game or Tour.",
 				type: "string"
 			}
 		}, ["title"]),
 		name: "thothan_start_game"
 	},
 	{
-		description: "Continue a Playable game locally. With no arguments, resumes the game this folder (or its only game subfolder) belongs to. With gameId, opens a game made in the app; with topicId, a production chat. Checks the workspace out, or updates the existing checkout.",
+		description: "Continue a Playable game or Tour locally. With no arguments, resumes the one this folder (or its only subfolder) belongs to. With gameId or tourId, opens one made in the app; with topicId, a production chat. Checks the workspace out, or updates the existing checkout.",
 		inputSchema: object({
 			agentId: {
 				description: "Author agent, when the game is not among your works yet.",
@@ -20160,17 +20205,21 @@ const LOCAL_TOOLS = [
 			topicId: {
 				description: "Production chat id (from .appota-game.json).",
 				type: "string"
+			},
+			tourId: {
+				description: "Id of a Tour made in the app (tour_…).",
+				type: "string"
 			}
 		}),
 		name: "thothan_open_game"
 	},
 	{
-		description: "Where the game stands: its ids (chat, Game Genesis project, workspace), the latest revision, last test, publication, local changes not yet pushed, and the link that opens it in the Playable app.",
+		description: "Where the game or Tour stands: its ids (chat, Game Genesis project or Tour, workspace), the latest revision, last test, publication, local changes not yet pushed, and the link that opens it in the Playable app.",
 		inputSchema: object({}),
 		name: "thothan_status"
 	},
 	{
-		description: "Push the local folder as a new workspace revision (three-way: workspace-side edits are kept) and record it in the creator’s chat. Returns the revision and the server type-check. Game Genesis calls that read the workspace push first by themselves unless they name a revision.",
+		description: "Push the local folder as a new workspace revision (three-way: workspace-side edits are kept) and record it in the creator’s chat. Returns the revision and the server type-check. Game Genesis calls that read the workspace push first by themselves unless they name a revision; Tour calls never do: push, then link and build the revision you pushed.",
 		inputSchema: object({
 			force: {
 				description: "Let the folder win files both sides changed.",
@@ -20206,7 +20255,7 @@ const LOCAL_TOOLS = [
 		name: "thothan_restore_scaffold"
 	},
 	{
-		description: "List the workspace revisions of the game, newest first.",
+		description: "List the workspace revisions of the game or Tour, newest first.",
 		inputSchema: object({}),
 		name: "thothan_list_revisions"
 	},
@@ -20245,14 +20294,14 @@ const serviceToolName = (identifier, apiName) => `${SERVICE_PREFIXES[identifier]
 * reach every API by the name the skill uses.
 */
 const GATEWAY_TOOLS = [{
-	description: "Find Game Genesis, Image Forge, Sound Sage and checklist (gtd) APIs. With `tools`, returns each one’s full description and argument schema; otherwise lists the names with a one-line summary, narrowed by `query` or `service`. Run one with thothan_call.",
+	description: "Find Game Genesis, Playable Tour, Image Forge, Sound Sage and checklist (gtd) APIs. With `tools`, returns each one’s full description and argument schema; otherwise lists the names with a one-line summary, narrowed by `query` or `service`. Run one with thothan_call.",
 	inputSchema: object({
 		query: {
 			description: "Words to match in names and descriptions.",
 			type: "string"
 		},
 		service: {
-			description: "game_genesis, image_forge, sound_sage or gtd.",
+			description: "game_genesis, tour, image_forge, sound_sage or gtd.",
 			type: "string"
 		},
 		tools: {
@@ -20263,7 +20312,7 @@ const GATEWAY_TOOLS = [{
 	}),
 	name: "thothan_find_tools"
 }, {
-	description: "Run one Game Genesis, Image Forge, Sound Sage or checklist (gtd) API by the name the playable-game skill uses, e.g. game_genesis_startGameProject. Read its argument schema with thothan_find_tools first.",
+	description: "Run one Game Genesis, Playable Tour, Image Forge, Sound Sage or checklist (gtd) API by the name the playable-game skill uses, e.g. game_genesis_startGameProject or tour_create_tour_draft. Read its argument schema with thothan_find_tools first.",
 	inputSchema: object({
 		arguments: {
 			description: "The API’s arguments, as its schema describes.",
@@ -20323,8 +20372,10 @@ const buildServiceTools = (catalog) => {
 	};
 };
 const sessionLines = (session) => [
+	session.kind === "tour" && "kind: Playable Tour",
 	`topicId: ${session.topicId}`,
 	session.gameId && `gameId (Game Genesis projectId): ${session.gameId}`,
+	session.tourId && `tourId: ${session.tourId}`,
 	session.workspaceId && `workspaceId: ${session.workspaceId}`,
 	session.progress?.codeWorkspaceRevision !== void 0 && `latest revision: ${session.progress.codeWorkspaceRevision}`,
 	`open in Playable: ${session.workUrl ?? session.appUrl}`
@@ -20397,7 +20448,7 @@ const createGameMcpServer = (options) => {
 		version: "1.0.0"
 	}, {
 		capabilities: { tools: { listChanged: true } },
-		instructions: "Build Playable games locally, in step with the Playable app. Follow the playable-game skill; start with thothan_status, passing workdir."
+		instructions: "Build Playable games and Tours locally, in step with the Playable app. Follow the playable-game skill; start with thothan_status, passing workdir."
 	});
 	const context = () => options.context(server.getClientVersion()?.name ?? "coding-agent");
 	/**
@@ -20437,7 +20488,7 @@ const createGameMcpServer = (options) => {
 	const folder = async () => locateGameFolder(activeRoot ?? await baseDir());
 	let services;
 	const serviceTools = () => {
-		services ??= context().then((ctx) => ctx.api.tools()).then(buildServiceTools).catch((error) => {
+		services ??= context().then(async (ctx) => [...await ctx.api.tools(), ...await ctx.api.tools("tour")]).then(buildServiceTools).catch((error) => {
 			services = void 0;
 			throw error;
 		});
@@ -20509,14 +20560,17 @@ const createGameMcpServer = (options) => {
 		switch (name) {
 			case "thothan_view_images": return viewImages(ctx.server, args.images);
 			case "thothan_list_authors": {
-				const authors = await ctx.api.authors();
-				return text(authors.length ? authors.map((author) => `${author.id}  ${author.name} (${author.access})`).join("\n") : "No game authors yet. The creator makes one in the Playable app (Create → Authors).");
+				const tour = args.kind === "tour";
+				const authors = await ctx.api.authors(tour ? "tour" : "games");
+				return text(authors.length ? authors.map((author) => `${author.id}  ${author.name} (${author.access})`).join("\n") : `No ${tour ? "Tour" : "game"} authors yet. The creator makes one in the Playable app (Create → Authors).`);
 			}
 			case "thothan_start_game": {
+				const tour = args.kind === "tour";
 				const started = await startGame(ctx, {
 					agentId: args.agentId,
 					cwd: await baseDir(),
 					dir: args.dir,
+					kind: tour ? "tour" : "games",
 					prompt: args.prompt,
 					title: String(args.title ?? "")
 				});
@@ -20525,7 +20579,7 @@ const createGameMcpServer = (options) => {
 					`Started "${started.session.title}" in ${started.dir} (workspace revision ${started.revision}).`,
 					started.cloud,
 					sessionLines(started.session),
-					`Next: game_genesis_startGameProject with codeWorkspaceId "${started.workspaceId}" and codeWorkspaceRevision ${started.revision}. Then run \`npm install\` in the folder.`
+					tour ? `Next: tour_create_tour_draft with the title and a brief, then tour_fetch_tour_guidance with the returned tour_id, and follow it. This folder is the Tour's workspace ("${started.workspaceId}"): never create another; link the revisions you push with tour_link_tour_workspace.` : `Next: game_genesis_startGameProject with codeWorkspaceId "${started.workspaceId}" and codeWorkspaceRevision ${started.revision}. Then run \`npm install\` in the folder.`
 				].filter(Boolean).join("\n"));
 			}
 			case "thothan_open_game": {
@@ -20534,7 +20588,8 @@ const createGameMcpServer = (options) => {
 					cwd: await baseDir(),
 					dir: args.dir,
 					gameId: args.gameId,
-					topicId: args.topicId
+					topicId: args.topicId,
+					tourId: args.tourId
 				});
 				activeRoot = opened.dir;
 				return text([
@@ -20550,8 +20605,7 @@ const createGameMcpServer = (options) => {
 				return text([
 					`"${session.title}" in ${current.root}`,
 					sessionLines(session),
-					progress?.lastTest && `last test: ${progress.lastTest.compileSuccess ? "passed" : "failed"} at revision ${progress.lastTest.workspaceRevision ?? "?"}`,
-					progress?.published ? `published at revision ${progress.published.workspaceRevision ?? "?"}` : "not published",
+					...session.kind === "tour" ? [`Tour status: ${session.tourStatus ?? "no draft yet"}`] : [progress?.lastTest && `last test: ${progress.lastTest.compileSuccess ? "passed" : "failed"} at revision ${progress.lastTest.workspaceRevision ?? "?"}`, progress?.published ? `published at revision ${progress.published.workspaceRevision ?? "?"}` : "not published"],
 					hasLocalChanges(current.root) ? "local changes not pushed yet" : "folder matches the workspace"
 				].filter(Boolean).join("\n"));
 			}
@@ -20562,7 +20616,7 @@ const createGameMcpServer = (options) => {
 				});
 				const lines = [push.changedPaths.length ? `Pushed ${push.changedPaths.length} file(s) → revision ${push.revision}.` : `Nothing to push; the workspace is at revision ${push.revision}.`];
 				if (push.pulled.length) lines.push(`Also took ${push.pulled.length} workspace change(s): ${push.pulled.join(", ")}`);
-				if (push.skippedBinary.length) lines.push(`Not pushed (workspaces hold text only; media go through Image Forge / Sound Sage and /src/gameAssets.ts): ${push.skippedBinary.join(", ")}`);
+				if (push.skippedBinary.length) lines.push(session.kind === "tour" ? `Not pushed (workspaces hold text only; a Tour's media go in with code_workspace importTourImage): ${push.skippedBinary.join(", ")}` : `Not pushed (workspaces hold text only; media go through Image Forge / Sound Sage and /src/gameAssets.ts): ${push.skippedBinary.join(", ")}`);
 				if (push.validation && !push.validation.compileSuccess) lines.push(`Server type-check failed:\n${push.validation.diagnostics.slice(0, 30).join("\n")}`);
 				if (notRecorded) lines.push(`The revision is saved, but not yet shown in the creator’s chat (${notRecorded}). The next test records it.`);
 				lines.push(sessionLines(session));
@@ -20647,7 +20701,8 @@ const createGameMcpServer = (options) => {
 			const footer = [
 				result.pushed?.changedPaths.length && `(Pushed ${result.pushed.changedPaths.length} local file(s) first → revision ${result.pushed.revision}.)`,
 				result.unpushed && "(The folder has changes this revision does not include: push them and re-run the check on the new revision.)",
-				`[gameId ${result.session.gameId ?? "-"} · workspace ${result.session.workspaceId ?? "-"} · revision ${result.session.progress?.codeWorkspaceRevision ?? "-"}]`
+				result.pulled?.length && `(Pulled the workspace change into the folder: ${result.pulled.join(", ")}.)`,
+				result.session.kind === "tour" ? `[tourId ${result.session.tourId ?? "-"} · workspace ${result.session.workspaceId ?? "-"}]` : `[gameId ${result.session.gameId ?? "-"} · workspace ${result.session.workspaceId ?? "-"} · revision ${result.session.progress?.codeWorkspaceRevision ?? "-"}]`
 			].filter(Boolean).join("\n");
 			return text(`${result.content}\n\n${footer}`, !result.success);
 		} catch (error) {
@@ -20737,6 +20792,7 @@ const fail = (error) => {
 const printSession = (session) => {
 	console.log(import_picocolors.default.dim(`  topic      ${session.topicId}`));
 	if (session.gameId) console.log(import_picocolors.default.dim(`  game       ${session.gameId}`));
+	if (session.kind === "tour") console.log(import_picocolors.default.dim(`  tour       ${session.tourId ?? "(no draft yet)"}`));
 	if (session.workspaceId) console.log(import_picocolors.default.dim(`  workspace  ${session.workspaceId}`));
 	console.log(import_picocolors.default.dim(`  open       ${session.workUrl ?? session.appUrl}`));
 };
@@ -20747,13 +20803,13 @@ const parseArgs = (raw) => {
 	return parsed;
 };
 function registerGameCommand(program) {
-	const game = program.command("game").description("Build a Playable game in a local folder with Claude Code or Codex, kept in step with the Playable app");
-	game.command("authors").description("List the author agents a game can belong to").option("--json", "Output JSON").action(async (options) => {
+	const game = program.command("game").description("Build a Playable game or Tour in a local folder with Claude Code or Codex, kept in step with the Playable app");
+	game.command("authors").description("List the author agents a game (or with --tour, a Tour) can belong to").option("--tour", "Tour authors").option("--json", "Output JSON").action(async (options) => {
 		try {
-			const authors = await (await gameContext()).api.authors();
+			const authors = await (await gameContext()).api.authors(options.tour ? "tour" : "games");
 			if (options.json) return outputJson(authors);
 			if (!authors.length) {
-				console.log("No game authors yet. Create one in the Playable app (Create → Authors).");
+				console.log(`No ${options.tour ? "Tour" : "game"} authors yet. Create one in the Playable app (Create → Authors).`);
 				return;
 			}
 			printTable(authors.map((author) => [
@@ -20769,31 +20825,33 @@ function registerGameCommand(program) {
 			fail(error);
 		}
 	});
-	game.command("new <title> [dir]").description("Start a new game: its chat in the app, its workspace, and a local checkout").option("-a, --agent <agentId>", "Author agent that owns the game").option("-p, --prompt <text>", "The request, as the chat in the app shows it").action(async (title, dir, options) => {
+	game.command("new <title> [dir]").description("Start a new game (or with --tour, a Playable Tour): its chat in the app, its workspace, and a local checkout").option("--tour", "Start a Playable Tour instead of a game").option("-a, --agent <agentId>", "Author agent that owns the game or Tour").option("-p, --prompt <text>", "The request, as the chat in the app shows it").action(async (title, dir, options) => {
 		try {
 			const started = await startGame(await gameContext(), {
 				agentId: options.agent,
 				cwd: process.cwd(),
 				dir,
+				kind: options.tour ? "tour" : "games",
 				prompt: options.prompt,
 				title
 			});
 			console.log(`${import_picocolors.default.green("✓")} Started "${started.session.title}" in ${import_picocolors.default.bold(started.dir)} (revision ${started.revision})`);
 			printSession(started.session);
 			if (started.cloud) console.log(import_picocolors.default.dim(`  ${started.cloud}`));
-			console.log(import_picocolors.default.dim(`  next: open the folder in Claude Code or Codex and ask it to build the game (cd ${path.relative(process.cwd(), started.dir) || "."} && npm install)`));
+			console.log(import_picocolors.default.dim(options.tour ? `  next: open the folder in Claude Code or Codex and ask it to build the Tour` : `  next: open the folder in Claude Code or Codex and ask it to build the game (cd ${path.relative(process.cwd(), started.dir) || "."} && npm install)`));
 		} catch (error) {
 			fail(error);
 		}
 	});
-	game.command("open [dir]").description("Continue a game locally: this folder’s, one made in the app (--game), or a chat (--topic)").option("-g, --game <gameId>", "Game Genesis project id").option("-t, --topic <topicId>", "Production chat id").option("-a, --agent <agentId>", "Author agent, when the game is not among your works yet").action(async (dir, options) => {
+	game.command("open [dir]").description("Continue a game or Tour locally: this folder’s, one made in the app (--game, --tour), or a chat (--topic)").option("-g, --game <gameId>", "Game Genesis project id").option("--tour <tourId>", "Id of a Tour made in the app").option("-t, --topic <topicId>", "Production chat id").option("-a, --agent <agentId>", "Author agent, when the game is not among your works yet").action(async (dir, options) => {
 		try {
 			const opened = await openGame(await gameContext(), {
 				agentId: options.agent,
 				cwd: process.cwd(),
 				dir,
 				gameId: options.game,
-				topicId: options.topic
+				topicId: options.topic,
+				tourId: options.tour
 			});
 			console.log(`${import_picocolors.default.green("✓")} ${opened.pulled ? "Updated" : "Checked out"} "${opened.session.title}" in ${import_picocolors.default.bold(opened.dir)} (revision ${opened.revision})`);
 			printSession(opened.session);
@@ -20802,7 +20860,7 @@ function registerGameCommand(program) {
 			fail(error);
 		}
 	});
-	game.command("status [dir]").description("Show the game this folder belongs to and where it stands").option("--json", "Output JSON").action(async (dir, options) => {
+	game.command("status [dir]").description("Show the game or Tour this folder belongs to and where it stands").option("--json", "Output JSON").action(async (dir, options) => {
 		try {
 			const folder = requireGameFolder(dir ?? process.cwd());
 			const session = await (await gameContext()).api.session(folder.session.topicId);
@@ -20814,6 +20872,11 @@ function registerGameCommand(program) {
 			});
 			console.log(`${import_picocolors.default.bold(session.title)}  ${import_picocolors.default.dim(folder.root)}`);
 			printSession(session);
+			if (session.kind === "tour") {
+				console.log(`  status     ${session.tourStatus ?? "no draft yet"}`);
+				console.log(`  folder     ${dirty ? import_picocolors.default.yellow("local changes not pushed") : "in sync"}`);
+				return;
+			}
 			const test = session.progress?.lastTest;
 			if (test) console.log(`  last test  ${test.compileSuccess ? import_picocolors.default.green("passed") : import_picocolors.default.red("failed")} at revision ${test.workspaceRevision ?? "?"}`);
 			console.log(`  published  ${session.progress?.published ? `revision ${session.progress.published.workspaceRevision ?? "?"}` : "no"}`);

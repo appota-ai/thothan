@@ -1,7 +1,7 @@
 # Thổ Thần for Claude Code and Codex
 
-Build Playable games on your own machine with Claude Code or Codex. The game ends up in the
-Playable app just like one made there:
+Build Playable games and Playable Tours on your own machine with Claude Code or Codex. The work
+ends up in the Playable app just like one made there:
 
 - it is listed under the author;
 - the production chat shows each step;
@@ -87,6 +87,14 @@ A key from the environment is only ever sent to `thothan.appota.ai`.
 
 </details>
 
+## Tours
+
+Ask for a Playable Tour (a walk or hunt through real places, with stops and challenges) the same
+way. The agent starts it with `thothan_start_game` and `kind: "tour"`, plans it with the Tour
+service, imports art and sound into the Tour, builds it, and publishes only when you ask. You need
+a Tour author (Playable app → Create → Authors). Live rooms with invited players stay in the app.
+To continue a Tour made in the app, give the agent its id (`tour_…`).
+
 ## What you need
 
 - **A Thổ Thần account**: the same account as the Playable app and thothan.appota.ai.
@@ -168,8 +176,9 @@ never pushed into the game.
 
 | Command                              | What it does                              |
 | ------------------------------------ | ----------------------------------------- |
-| `game new "<title>"`                 | Start a game                              |
+| `game new "<title>"`                 | Start a game (`--tour` for a Tour)        |
 | `game open --game <gameId>`          | Check out a game made in the app          |
+| `game open --tour <tourId>`          | Check out a Tour made in the app          |
 | `game status`                        | Show where the game stands                |
 | `game push` / `game pull`            | Sync the folder with the game's workspace |
 | `game call <service> <api> '<json>'` | Run one service call                      |
