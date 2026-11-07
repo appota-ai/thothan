@@ -1,6 +1,6 @@
 ---
 name: playable-tour
-description: Build, preview and publish a Playable Tour (a location walk, city hunt or guided route with stops, challenges and a story) from a local folder, using the same services as the in-app Tour author (the Tour service, Image Forge, Sound Sage) through the `thothan` MCP tools, so the Tour and every step show up in the creator's Playable app. Use when the user asks to make, continue, fix or publish a Playable Tour, or the folder's `.appota-game.json` says `"kind": "tour"`. For games, use the playable-game skill.
+description: Build, preview and publish Playable Tours locally through Thổ Thần services, including missions linked to published Games. Use for location walks, hunts, routes and Tour challenges; use playable-game to author or modify a Game.
 ---
 
 # Playable Tour builder
@@ -17,7 +17,8 @@ folder, and it shows up in the creator's Playable app like one made there.
 - **The services** are the Tour service (`tour_*`, Taka GraphDB: the draft, plan, private grading,
   builds and publication), Image Forge, Sound Sage, the checklist (`gtd_*`), and two workspace calls
   that only the server can make: `code_workspace_importTourImage` and
-  `code_workspace_buildTourWorkspace`. Game Genesis is not part of a Tour.
+  `code_workspace_buildTourWorkspace`. Link published Games through the Tour service's
+  discovery API; author or change the Game in its own Game production.
 - **Rooms** (live sessions with invited players) stay in the Playable app.
 - **The `thothan` MCP tools** run every service call on the AppotaHub server, on the Tour's
   production chat, exactly as the in-app author's call would run. Each call and each push is saved
@@ -79,6 +80,19 @@ signed in through OAuth.
   `/f/` links, remote URLs, SVG or base64 in Tour source.
 - **Grading stays private.** Tour source never contains correct answers or grading logic, and never
   computes points: the server grades and scores.
+
+## Missions that play a published Game
+
+When a challenge requires playing a published Game, read
+[references/game-missions.md](references/game-missions.md). Discover the Game through
+`tour_get_published_game_for_mission`, pin the returned release and metric, and use the
+native `PlayableTour.player.startGameMission` / `getGameMission` flow. An objective such
+as reaching 1000 Game points qualifies for the separately authored Tour award.
+
+Protocol v1 supports required individual numeric objectives in **solo Tours**. Ordinary
+Game multiplayer support does not enable Tour co-op or PvP missions. If discovery or
+host support is unavailable, report that dependency; never replace the Game mission
+with a boolean, manual score submission, arbitrary URL or embedded Game iframe.
 
 ## Build loop
 

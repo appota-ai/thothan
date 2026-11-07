@@ -96,6 +96,26 @@ into the Tour, builds it, and publishes only when you ask. You need a Tour autho
 Create → Authors). Live rooms with invited players stay in the app.
 To continue a Tour made in the app, give the agent its id (`tour_…`).
 
+### Game missions in Tours
+
+Ask for a challenge such as “play my published Rummikub game and reach 1000 points”.
+The agent discovers that Game's supported metrics and immutable release through the
+Tour service, then adds a required Game mission. In Playable, **Play game** opens the
+pinned build inside the app. Accepted checkpoint/final reports settle against the Tour;
+returning to the Tour is not required to record completion.
+
+- The Game author explicitly enables mission reporting and wires the player-data shell.
+- The Tour pins the discovered release and metric version. Game points are the objective;
+  Tour points are a separate award. Personal bests and ordinary Game launches do not count.
+- The current protocol supports individual numeric goals in solo Tours. Co-op, team awards
+  and player/team-versus Tour goals are not enabled by ordinary Game multiplayer support.
+- Scores are game-reported, not anti-cheat certified. A compatible Game service, Tour service
+  and Playable app host must be deployed; updating this plugin does not deploy them.
+
+Both skills include the detailed authoring and runtime steps. Codex reaches discovery
+through `thothan_find_tools` / `thothan_call`; Claude Code can call the same Tour tool
+directly. Cloud repositories receive the same references through `game install repo`.
+
 ## What you need
 
 - **A Thổ Thần account**: the same account as the Playable app and thothan.appota.ai.

@@ -1,6 +1,6 @@
 ---
 name: playable-game
-description: Build, playtest and publish a Playable (AppotaHub) H5 game from a local folder, using the same services as the in-app game author (Game Genesis, Image Forge, Sound Sage) through the `thothan` MCP tools, so the game and every step show up in the creator's Playable app. Use when the user asks to make, continue, fix, polish or publish a Playable game, mentions Playable / Game Genesis / Thổ Thần games, or the folder (or a parent) has `.appota-game.json` without `"kind": "tour"`. For a Playable Tour (a location walk or hunt with stops), use the playable-tour skill.
+description: Build, playtest and publish Playable H5 games locally through Thổ Thần services, including enabling a Game to report Tour mission progress. Use for Playable or Game Genesis game authoring; use playable-tour for Tour authoring.
 ---
 
 # Playable game builder
@@ -172,6 +172,18 @@ for one.
    - The ids: Game Genesis project, workspace, final revision.
    - The QA status.
    - The Playable link from `thothan_status`.
+
+## Make a Game eligible for Tour missions
+
+When the creator wants a published Game to count toward a Tour objective, read
+[references/tour-missions.md](references/tour-missions.md). Configure its result metric,
+explicitly opt into `missionReporting`, and wire checkpoint/final reports through the
+seeded player-data shell. Publishing eligibility still follows the creator's publication
+authorization and the normal QA gates. The Tour author selects the resulting immutable
+release in the separate Tour production.
+
+Mission evidence is currently game-reported. A normal multiplayer Game is not thereby
+eligible for Tour co-op, team awards or competitive outcomes.
 
 ## Spine characters
 
